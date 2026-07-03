@@ -43,11 +43,6 @@
                     <h2 class="text-xl font-bold text-gray-900">Persepsi terhadap Kebijakan WFO/WFA</h2>
                     <p class="text-sm text-gray-500 mt-1">Distribusi respon berdasarkan skala Likert (1-5)</p>
                 </div>
-                <button type="button"
-                        onclick="window.location.href='{{ route('data') }}'"
-                        class="inline-flex items-center gap-2 px-5 h-11 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold shadow-sm transition shrink-0">
-                    <i data-lucide="download" class="w-4 h-4"></i> Unduh Data
-                </button>
             </div>
 
             {{-- Filters --}}
