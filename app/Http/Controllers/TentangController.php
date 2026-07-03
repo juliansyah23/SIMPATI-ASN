@@ -2,6 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Questionnaire;
+use App\Models\SurveyResponse;
+use Illuminate\Support\Facades\DB;
+
 class TentangController extends Controller
 {
     public function index()
@@ -61,23 +65,7 @@ class TentangController extends Controller
             ],
         ];
 
-        $temuanUtama = [
-            [
-                'value' => '+12.3%',
-                'color' => 'red',
-                'desc' => 'Peningkatan kondisi psikososial WFA dari 2022 ke 2024',
-            ],
-            [
-                'value' => '1.3%',
-                'color' => 'green',
-                'desc' => 'Kesenjangan psikososial WFA-WFO di 2024 (turun dari 11.5% di 2022)',
-            ],
-            [
-                'value' => '85.5%',
-                'color' => 'purple',
-                'desc' => 'Rata-rata skor kesejahteraan psikososial ASN 2024',
-            ],
-        ];
+        $temuanUtama = $this->temuanUtama();
 
         $kontak = [
             'email' => ['simpati.asn@brin.go.id', 'hrd@brin.go.id'],
@@ -88,5 +76,178 @@ class TentangController extends Controller
         return view('tentang.index', compact(
             'tujuan', 'latarBelakang', 'metodologi', 'temuanUtama', 'kontak'
         ));
+    }
+
+    /** Kuisioner aktif dipakai sebagai sumber data "Temuan Utama". Duplikat dari DataController::activeQuestionnaire(). */
+    private function activeQuestionnaire(): ?Questionnaire
+    {
+        return Questionnaire::where('status', 'aktif')->latest('id')->first();
+    }
+
+    /**
+     * Map nilai field demografi 'pola_kehadiran' ke bucket WFA/WFO/Hybrid.
+     * Duplikat dari DataController::modeKerjaBucket() (pola duplikasi ini sudah
+     * dipakai di beberapa controller lain di project ini).
+     */
+    private function modeKerjaBucket(?string $polaKehadiran): string
+    {
+        if (! $polaKehadiran) {
+            return 'Hybrid';
+        }
+
+        $value = strtolower($polaKehadiran);
+
+        if (str_contains($value, 'wfa')) {
+            return 'WFA';
+        }
+
+        if (str_contains($value, 'wfo 5x')) {
+            return 'WFO';
+        }
+
+        return 'Hybrid';
+    }
+
+    /** Bucket mode kerja per survey_response_id, dari kuisioner aktif. Duplikat dari DataController::modeKerjaByResponseId(). */
+    private function modeKerjaByResponseId(Questionnaire $questionnaire): array
+    {
+        $rows = DB::table('survey_demografi')
+            ->join('demografi_fields', 'demografi_fields.id', '=', 'survey_demografi.demografi_field_id')
+            ->join('categories', 'categories.id', '=', 'demografi_fields.category_id')
+            ->where('categories.questionnaire_id', $questionnaire->id)
+            ->where('demografi_fields.field_key', 'pola_kehadiran')
+            ->select('survey_demografi.survey_response_id', 'survey_demografi.value')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[$row->survey_response_id] = $this->modeKerjaBucket($row->value);
+        }
+
+        return $map;
+    }
+
+    /**
+     * Rata-rata skor (kolom survey_responses.rata_rata, skala 1-5) untuk kuisioner
+     * aktif, dibatasi ke tahun submit tertentu dan (opsional) bucket mode kerja
+     * tertentu, dikonversi ke persen (0-100). Null kalau tidak ada respons yang cocok.
+     */
+    private function avgSkorPersen(Questionnaire $questionnaire, string $tahun, array $modeKerjaMap, ?string $bucket = null): ?float
+    {
+        $responses = SurveyResponse::where('questionnaire_id', $questionnaire->id)
+            ->where('status', 'submitted')
+            ->whereYear('submitted_at', $tahun)
+            ->whereNotNull('rata_rata')
+            ->get(['id', 'rata_rata']);
+
+        if ($bucket !== null) {
+            $responses = $responses->filter(
+                fn ($r) => ($modeKerjaMap[$r->id] ?? null) === $bucket
+            )->values();
+        }
+
+        if ($responses->isEmpty()) {
+            return null;
+        }
+
+        return round(((float) $responses->avg('rata_rata') / 5) * 100, 1);
+    }
+
+    /**
+     * Hitung 3 kartu "Temuan Utama" dari data respons submitted sungguhan (bukan
+     * hardcode), dibandingkan antara tahun submit paling awal & paling akhir yang
+     * benar-benar ada di database — bukan diasumsikan tetap 2022 & 2024, supaya
+     * tetap valid berapa pun rentang tahun data yang tersedia (termasuk kalau
+     * baru ada data satu tahun).
+     */
+    private function temuanUtama(): array
+    {
+        $questionnaire = $this->activeQuestionnaire();
+
+        if (! $questionnaire) {
+            return $this->temuanUtamaKosong();
+        }
+
+        $tahunList = SurveyResponse::where('questionnaire_id', $questionnaire->id)
+            ->where('status', 'submitted')
+            ->whereNotNull('submitted_at')
+            ->selectRaw('YEAR(submitted_at) as tahun')
+            ->distinct()
+            ->orderBy('tahun')
+            ->pluck('tahun');
+
+        if ($tahunList->isEmpty()) {
+            return $this->temuanUtamaKosong();
+        }
+
+        $tahunAwal  = (string) $tahunList->first();
+        $tahunAkhir = (string) $tahunList->last();
+        $adaTren    = $tahunAwal !== $tahunAkhir;
+
+        $modeKerjaMap = $this->modeKerjaByResponseId($questionnaire);
+
+        $wfaAwal    = $this->avgSkorPersen($questionnaire, $tahunAwal, $modeKerjaMap, 'WFA');
+        $wfaAkhir   = $this->avgSkorPersen($questionnaire, $tahunAkhir, $modeKerjaMap, 'WFA');
+        $wfoAwal    = $this->avgSkorPersen($questionnaire, $tahunAwal, $modeKerjaMap, 'WFO');
+        $wfoAkhir   = $this->avgSkorPersen($questionnaire, $tahunAkhir, $modeKerjaMap, 'WFO');
+        $semuaAkhir = $this->avgSkorPersen($questionnaire, $tahunAkhir, $modeKerjaMap);
+
+        // Kartu 1: perubahan (atau kondisi terkini kalau baru ada 1 tahun data) skor WFA.
+        if ($adaTren && $wfaAwal !== null && $wfaAkhir !== null) {
+            $delta = round($wfaAkhir - $wfaAwal, 1);
+            $kartu1 = [
+                'value' => ($delta >= 0 ? '+' : '') . number_format($delta, 1) . '%',
+                'color' => 'red',
+                'desc'  => "Perubahan kondisi psikososial WFA dari {$tahunAwal} ke {$tahunAkhir}",
+            ];
+        } else {
+            $kartu1 = [
+                'value' => $wfaAkhir !== null ? number_format($wfaAkhir, 1) . '%' : '-',
+                'color' => 'red',
+                'desc'  => "Kondisi psikososial WFA saat ini ({$tahunAkhir})",
+            ];
+        }
+
+        // Kartu 2: kesenjangan WFA-WFO di tahun terakhir, dibanding tahun awal (kalau ada).
+        $gapAkhir = ($wfaAkhir !== null && $wfoAkhir !== null) ? round(abs($wfaAkhir - $wfoAkhir), 1) : null;
+        $gapAwal  = ($wfaAwal !== null && $wfoAwal !== null) ? round(abs($wfaAwal - $wfoAwal), 1) : null;
+
+        if ($adaTren && $gapAkhir !== null && $gapAwal !== null) {
+            $arah = match (true) {
+                $gapAkhir < $gapAwal => "turun dari " . number_format($gapAwal, 1) . "% di {$tahunAwal}",
+                $gapAkhir > $gapAwal => "naik dari " . number_format($gapAwal, 1) . "% di {$tahunAwal}",
+                default              => "sama seperti di {$tahunAwal}",
+            };
+            $kartu2 = [
+                'value' => number_format($gapAkhir, 1) . '%',
+                'color' => 'green',
+                'desc'  => "Kesenjangan psikososial WFA-WFO di {$tahunAkhir} ({$arah})",
+            ];
+        } else {
+            $kartu2 = [
+                'value' => $gapAkhir !== null ? number_format($gapAkhir, 1) . '%' : '-',
+                'color' => 'green',
+                'desc'  => "Kesenjangan psikososial WFA-WFO saat ini ({$tahunAkhir})",
+            ];
+        }
+
+        // Kartu 3: rata-rata skor kesejahteraan psikososial seluruh responden di tahun terakhir.
+        $kartu3 = [
+            'value' => $semuaAkhir !== null ? number_format($semuaAkhir, 1) . '%' : '-',
+            'color' => 'purple',
+            'desc'  => "Rata-rata skor kesejahteraan psikososial ASN {$tahunAkhir}",
+        ];
+
+        return [$kartu1, $kartu2, $kartu3];
+    }
+
+    /** Fallback kalau belum ada kuisioner aktif / belum ada respons submitted sama sekali. */
+    private function temuanUtamaKosong(): array
+    {
+        return [
+            ['value' => '-', 'color' => 'red',    'desc' => 'Perubahan kondisi psikososial WFA — data belum tersedia'],
+            ['value' => '-', 'color' => 'green',  'desc' => 'Kesenjangan psikososial WFA-WFO — data belum tersedia'],
+            ['value' => '-', 'color' => 'purple', 'desc' => 'Rata-rata skor kesejahteraan psikososial ASN — data belum tersedia'],
+        ];
     }
 }

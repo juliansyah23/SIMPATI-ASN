@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password as PasswordBroker;
 use Illuminate\Validation\Rules\Password;
 
 class AuthController extends Controller
@@ -116,6 +117,83 @@ class AuthController extends Controller
 
         return redirect()->route('dashboard')
             ->with('registered', 'Akun berhasil dibuat. Selamat datang, ' . $user->name . '!');
+    }
+
+    /**
+     * Tampilkan form "Lupa Password" — user memasukkan email untuk dikirimi link reset.
+     */
+    public function forgotPasswordForm()
+    {
+        if (Auth::check()) {
+            return redirect()->route('dashboard');
+        }
+
+        return view('auth.forgot-password');
+    }
+
+    /**
+     * Kirim link reset password ke email (via Password broker bawaan Laravel,
+     * konfigurasi ada di config/auth.php -> 'passwords.users'). Pesan sukses
+     * sama saja baik email terdaftar atau tidak, supaya tidak bocorkan email
+     * mana yang sudah punya akun (email enumeration).
+     */
+    public function forgotPasswordSubmit(Request $request)
+    {
+        $request->validate([
+            'email' => ['required', 'email'],
+        ], [
+            'email.required' => 'Email wajib diisi.',
+            'email.email'    => 'Format email tidak valid.',
+        ]);
+
+        PasswordBroker::sendResetLink($request->only('email'));
+
+        return back()->with('success', 'Jika email tersebut terdaftar, kami sudah mengirimkan link reset password ke email tersebut.');
+    }
+
+    /**
+     * Tampilkan form reset password, diakses dari link di email (token + email di query string).
+     */
+    public function resetPasswordForm(Request $request, string $token)
+    {
+        return view('auth.reset-password', [
+            'token' => $token,
+            'email' => $request->query('email', ''),
+        ]);
+    }
+
+    /**
+     * Proses reset password: validasi token via Password broker, lalu simpan password baru.
+     */
+    public function resetPasswordSubmit(Request $request)
+    {
+        $validated = $request->validate([
+            'token'    => ['required'],
+            'email'    => ['required', 'email'],
+            'password' => ['required', 'confirmed', Password::min(6)],
+        ], [
+            'email.required'     => 'Email wajib diisi.',
+            'email.email'        => 'Format email tidak valid.',
+            'password.required'  => 'Password wajib diisi.',
+            'password.confirmed' => 'Konfirmasi password tidak cocok.',
+        ]);
+
+        $status = PasswordBroker::reset(
+            $validated,
+            function (User $user, string $password) {
+                $user->forceFill([
+                    'password' => Hash::make($password),
+                ])->save();
+            }
+        );
+
+        if ($status === PasswordBroker::PASSWORD_RESET) {
+            return redirect()->route('login')->with('success', 'Password berhasil diubah. Silakan login dengan password baru.');
+        }
+
+        return back()
+            ->withInput($request->only('email'))
+            ->with('error', 'Link reset password tidak valid atau sudah kedaluwarsa. Silakan minta link baru.');
     }
 
     /**

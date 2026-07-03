@@ -67,7 +67,7 @@
             <div class="mb-6">
                 <div class="flex items-center justify-between mb-1.5">
                     <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
-                    <a href="#" class="text-xs text-brand-600 hover:underline">Lupa password?</a>
+                    <a href="{{ route('password.request') }}" class="text-xs text-brand-600 hover:underline">Lupa password?</a>
                 </div>
                 <div class="relative">
                     <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
