@@ -46,10 +46,10 @@
             </div>
 
             {{-- Filters --}}
-            <form method="GET" action="{{ route('dashboard') }}" class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
                 <div>
                     <label class="block text-sm font-semibold text-gray-700 mb-2">Pilih Kategori:</label>
-                    <select name="kategori" onchange="this.form.submit()"
+                    <select id="kategori-select"
                             class="w-full h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
                         @foreach ($categories as $key => $cat)
                             <option value="{{ $key }}" @selected($selectedCategory === $key)>
@@ -67,78 +67,30 @@
                         <option value="polarArea">Diagram Pohon</option>
                     </select>
                 </div>
-            </form>
+            </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 mt-10">
 
-                {{-- Chart + legend --}}
+                {{-- Chart canvas tetap statis di sini (bukan bagian AJAX) karena
+                     Chart.js perlu instance yang menempel ke elemen <canvas> ini
+                     terus-menerus; datanya di-update lewat chart.update(), bukan
+                     lewat penggantian innerHTML. --}}
                 <div>
                     <h3 class="text-base font-bold text-gray-900 mb-4">Distribusi Respon</h3>
                     <div class="relative h-80">
                         <canvas id="distributionChart"></canvas>
                     </div>
-
-                    <div class="flex flex-wrap gap-x-6 gap-y-2 mt-6 text-sm text-gray-600">
-                        @foreach ($activeCategory['labels_likert'] as $scale => $label)
-                            <span class="flex items-center gap-2">
-                                <span class="w-3 h-3 rounded-sm" style="background-color: {{ $colors[$scale] ?? '#ccc' }}"></span>
-                                {{ $label }} ({{ $scale }})
-                            </span>
-                        @endforeach
-                    </div>
                 </div>
 
-                {{-- Distribution list + table --}}
-                <div>
-                    <h3 class="text-base font-bold text-gray-900 mb-4">Distribusi Respon</h3>
-                    <div class="space-y-3">
-                        @foreach ($table as $row)
-                            <div class="flex items-center justify-between bg-gray-50 rounded-xl px-5 py-4">
-                                <span class="flex items-center gap-3 text-sm font-semibold text-gray-700">
-                                    <span class="w-3 h-3 rounded-sm shrink-0" style="background-color: {{ $colors[$row['scale']] ?? '#ccc' }}"></span>
-                                    {{ $activeCategory['labels_likert'][$row['scale']] }} ({{ $row['scale'] }})
-                                </span>
-                                <span class="text-right">
-                                    <span class="block text-sm font-bold text-gray-900">{{ $row['count'] }} responden</span>
-                                    <span class="block text-xs text-gray-500">{{ $row['percent'] }}%</span>
-                                </span>
-                            </div>
-                        @endforeach
-                    </div>
-
-                    <h3 class="text-base font-bold text-gray-900 mt-10 mb-4">Tabel Distribusi Frekuensi</h3>
-                    <div class="overflow-x-auto rounded-xl border border-gray-100">
-                        <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-gray-600">
-                                <tr>
-                                    <th class="text-left font-semibold px-5 py-3">Skala</th>
-                                    <th class="text-center font-semibold px-5 py-3">Frekuensi (n)</th>
-                                    <th class="text-center font-semibold px-5 py-3">Persentase (%)</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                @foreach ($table as $row)
-                                    <tr>
-                                        <td class="px-5 py-3 text-gray-700">{{ $row['label'] }} ({{ $row['scale'] }})</td>
-                                        <td class="px-5 py-3 text-center font-semibold text-gray-900">{{ $row['count'] }}</td>
-                                        <td class="px-5 py-3 text-center text-gray-600">{{ $row['percent'] }}%</td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                            <tfoot>
-                                <tr class="bg-gray-50 font-bold text-gray-900">
-                                    <td class="px-5 py-3">Total</td>
-                                    <td class="px-5 py-3 text-center">{{ $total }}</td>
-                                    <td class="px-5 py-3 text-center">100.0%</td>
-                                </tr>
-                            </tfoot>
-                        </table>
-                    </div>
-
-                    <div class="bg-red-50 rounded-xl px-5 py-4 mt-6">
-                        <p class="text-sm font-bold text-red-700">Ringkasan</p>
-                        <p class="text-sm text-red-600 mt-1">Total Responden: {{ $total }} pegawai</p>
-                    </div>
+                {{-- Legend + distribution list + table + ringkasan: semuanya
+                     diganti sekaligus lewat AJAX saat kategori berganti. --}}
+                <div id="category-panel">
+                    @include('dashboard.partials.category-panel', [
+                        'activeCategory' => $activeCategory,
+                        'colors'         => $colors,
+                        'table'          => $table,
+                        'total'          => $total,
+                    ])
                 </div>
             </div>
         </div>
@@ -181,18 +133,22 @@
 
 @push('scripts')
     <script>
-        const distribution = @json($activeCategory['distribution']);
-        const likertLabels = @json($activeCategory['labels_likert']);
-        const colors = @json($colors);
+        // Data chart bersifat "current" (bisa diganti saat AJAX refresh),
+        // makanya pakai `let` bukan `const`.
+        let distribution  = @json($activeCategory['distribution']);
+        let likertLabels  = @json($activeCategory['labels_likert']);
+        const colors      = @json($colors);
 
-        const labels = Object.keys(distribution).map(k => `${likertLabels[k]} (${k})`);
-        const data = Object.values(distribution);
-        const backgroundColors = Object.keys(distribution).map(k => colors[k]);
+        let labels           = Object.keys(distribution).map(k => `${likertLabels[k]} (${k})`);
+        let data             = Object.values(distribution);
+        let backgroundColors = Object.keys(distribution).map(k => colors[k]);
 
         let chart;
+        let currentChartType = 'pie';
         const ctx = document.getElementById('distributionChart');
 
         function renderChart(type) {
+            currentChartType = type;
             if (chart) chart.destroy();
 
             const isCartesian = type === 'bar';
@@ -219,7 +175,7 @@
                                 label: (ctx) => {
                                     const total = data.reduce((a, b) => a + b, 0);
                                     const raw   = ctx.raw ?? 0;
-                                    const pct   = (raw / total * 100).toFixed(1);
+                                    const pct   = total > 0 ? (raw / total * 100).toFixed(1) : '0.0';
                                     return `${ctx.label}: ${raw} responden (${pct}%)`;
                                 },
                             },
@@ -236,6 +192,37 @@
 
         document.getElementById('chartType').addEventListener('change', (e) => {
             renderChart(e.target.value);
+        });
+
+        // ─────────────────────────────────────────────────────────────
+        //  AJAX: ambil ulang data setiap dropdown kategori berganti
+        // ─────────────────────────────────────────────────────────────
+        const kategoriSelect = document.getElementById('kategori-select');
+        const dashboardDataUrl = '{{ route('dashboard.data') }}';
+
+        kategoriSelect.addEventListener('change', async (e) => {
+            try {
+                const res = await fetch(`${dashboardDataUrl}?kategori=${encodeURIComponent(e.target.value)}`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (!res.ok) throw new Error('Request gagal');
+                const json = await res.json();
+
+                // Ganti HTML legend + distribusi + tabel + ringkasan
+                document.getElementById('category-panel').innerHTML = json.panelHtml;
+                if (window.lucide) lucide.createIcons();
+
+                // Hitung ulang data chart lalu render ulang dengan tipe yang sedang dipilih
+                distribution     = json.distribution;
+                likertLabels     = json.labelsLikert;
+                labels           = Object.keys(distribution).map(k => `${likertLabels[k]} (${k})`);
+                data             = Object.values(distribution);
+                backgroundColors = Object.keys(distribution).map(k => json.colors[k]);
+
+                renderChart(currentChartType);
+            } catch (err) {
+                console.error('Gagal memuat data dashboard:', err);
+            }
         });
     </script>
 @endpush

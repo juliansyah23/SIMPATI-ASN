@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Questionnaire;
 use App\Models\SurveyResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class DataController extends Controller
@@ -116,7 +117,101 @@ class DataController extends Controller
         return $map;
     }
 
+    /**
+     * OPTIMISASI: ambil rata-rata skor per kategori UNTUK SETIAP survey_response_id
+     * sekaligus, dalam SATU query (bukan satu query per pusat riset / mode kerja /
+     * bulan seperti sebelumnya). Hasilnya: [response_id => ['kode_kategori' => rata]].
+     *
+     * Semua agregasi lain (per pusat riset, per mode kerja, per bulan, dst) tinggal
+     * mengelompokkan response_id yang relevan lalu me-rata-rata nilai dari peta ini
+     * di PHP — tanpa perlu query baru ke `survey_answers` sama sekali.
+     */
+    private function scoresByResponse(Questionnaire $questionnaire, array $responseIds): Collection
+    {
+        if (empty($responseIds)) {
+            return collect();
+        }
+
+        return DB::table('survey_answers')
+            ->join('questions', 'questions.id', '=', 'survey_answers.question_id')
+            ->join('categories', 'categories.id', '=', 'questions.category_id')
+            ->where('categories.questionnaire_id', $questionnaire->id)
+            ->whereIn('survey_answers.survey_response_id', $responseIds)
+            ->selectRaw('survey_answers.survey_response_id, categories.kode, AVG(survey_answers.skor) as rata')
+            ->groupBy('survey_answers.survey_response_id', 'categories.kode')
+            ->get()
+            ->groupBy('survey_response_id')
+            ->map(fn ($rows) => $rows->pluck('rata', 'kode')->map(fn ($v) => (float) $v)->all());
+    }
+
+    /**
+     * Rata-rata per kode kategori untuk sekumpulan response_id, dihitung dari peta
+     * skor yang sudah diambil sekali lewat scoresByResponse() — tanpa query baru.
+     * (Rata-rata dari rata-rata per-response valid karena jumlah pertanyaan per
+     * kategori sama untuk semua responden — 4 soal Likert per dimensi.)
+     */
+    private function aggregateScores(Collection $scores, array $ids): array
+    {
+        if (empty($ids) || $scores->isEmpty()) {
+            return [];
+        }
+
+        $sums = [];
+        $counts = [];
+
+        foreach ($ids as $id) {
+            foreach ($scores[$id] ?? [] as $kode => $value) {
+                $sums[$kode] = ($sums[$kode] ?? 0) + $value;
+                $counts[$kode] = ($counts[$kode] ?? 0) + 1;
+            }
+        }
+
+        $out = [];
+        foreach ($sums as $kode => $sum) {
+            $out[$kode] = round($sum / $counts[$kode], 2);
+        }
+
+        return $out;
+    }
+
     public function index(Request $request)
+    {
+        return view('data.index', $this->buildPayload($request));
+    }
+
+    /**
+     * Endpoint AJAX: menerima filter yang sama persis dengan index(), tapi
+     * mengembalikan JSON berisi data chart mentah (untuk di-render ulang oleh
+     * Chart.js) + HTML partial hasil render Blade (untuk tabel/kartu yang
+     * markup-nya kompleks, supaya tidak perlu ditulis ulang di JS).
+     */
+    public function data(Request $request)
+    {
+        $payload = $this->buildPayload($request);
+        $isAdmin = auth()->check() && auth()->user()->isAdmin();
+
+        return response()->json([
+            'statsHtml'   => view('data.partials.stat-cards', ['stats' => $payload['stats']])->render(),
+            'centersHtml' => view('data.partials.centers-table', ['centers' => $payload['centers']])->render(),
+            'detailHtml'  => $isAdmin
+                ? view('data.partials.detail-table', ['detailResponden' => $payload['detailResponden']])->render()
+                : null,
+            'detailCount'    => count($payload['detailResponden']),
+            'modeKerjaChart' => $payload['modeKerjaChart'],
+            'pieChart'       => $payload['pieChart'],
+            'radarChart'     => $payload['radarChart'],
+            'trendChart'     => $payload['trendChart'],
+            'trendTitle'     => 'Tren Psikososial ' . ((($payload['selected']['tahun'] ?? '')) ?: 'Semua Tahun'),
+            'exportQuery'    => http_build_query(array_filter($payload['selected'] ?? [])),
+        ]);
+    }
+
+    /**
+     * Menyusun seluruh data yang dibutuhkan halaman Data (stat cards, chart,
+     * tabel performa, detail responden) sesuai filter yang dikirim.
+     * Dipakai bersama oleh index() (render halaman penuh) dan data() (AJAX).
+     */
+    private function buildPayload(Request $request): array
     {
         $questionnaire = $this->activeQuestionnaire();
 
@@ -125,7 +220,7 @@ class DataController extends Controller
         $tahun = $filters_selected['tahun'] ?? '';
 
         if (! $questionnaire) {
-            return $this->emptyView($request, $tahun);
+            return $this->emptyPayload($request, $tahun);
         }
 
         $modeKerjaMap = $this->modeKerjaByResponseId($questionnaire);
@@ -150,9 +245,41 @@ class DataController extends Controller
             )->values();
         }
 
-        $totalRespons = $responses->count();
+        // Set responden yang lebih luas (tanpa filter pusat_riset) untuk tabel
+        // perbandingan "Performa per Pusat Riset".
+        $filtersWithoutPusatRiset = $filters_selected;
+        unset($filtersWithoutPusatRiset['pusat_riset']);
+        $allCenterResponses = $this->baseQuery($questionnaire, $filtersWithoutPusatRiset)
+            ->select('survey_responses.id', 'users.pusat_riset')
+            ->get();
 
-        $avgByCategory = $this->avgScoreByCategoryKode($questionnaire, $responses->pluck('id')->all());
+        // Set responden untuk trend chart (filter tahun diperlakukan khusus, lihat trendChart()).
+        $filtersForTrend = $filters_selected;
+        if (! empty($tahun)) {
+            $filtersForTrend['tahun'] = $tahun;
+        } else {
+            unset($filtersForTrend['tahun']);
+        }
+        $trendResponses = $this->baseQuery($questionnaire, $filtersForTrend)
+            ->whereNotNull('survey_responses.submitted_at')
+            ->select('survey_responses.id', 'survey_responses.submitted_at')
+            ->get();
+
+        // ── Query tunggal untuk SEMUA kebutuhan rata-rata skor di halaman ini ──
+        // Union id dari ketiga set di atas, lalu ambil skornya sekali saja.
+        // Sebelumnya bagian ini memicu ~25+ query JOIN terpisah (per pusat riset,
+        // per mode kerja, per bulan, dst). Sekarang tinggal 1 query.
+        $allIds = $responses->pluck('id')
+            ->merge($allCenterResponses->pluck('id'))
+            ->merge($trendResponses->pluck('id'))
+            ->unique()
+            ->values()
+            ->all();
+
+        $scores = $this->scoresByResponse($questionnaire, $allIds);
+
+        $totalRespons = $responses->count();
+        $avgByCategory = $this->aggregateScores($scores, $responses->pluck('id')->all());
 
         $stats = [
             [
@@ -176,17 +303,16 @@ class DataController extends Controller
             ],
         ];
 
-        $centers = $this->researchCenterPerformance($questionnaire, $filters_selected);
+        $centers          = $this->researchCenterPerformance($allCenterResponses, $scores);
+        $modeKerjaChart    = $this->modeKerjaChart($responses, $modeKerjaMap, $scores);
+        $pieChart          = $this->pieChartByPusatRiset($responses);
+        $radarChart        = $this->radarWfaVsWfo($responses, $modeKerjaMap, $scores);
+        $trendChart        = $this->trendChart($trendResponses, $scores, $tahun);
 
-        $modeKerjaChart = $this->modeKerjaChart($questionnaire, $responses, $modeKerjaMap);
-        $pieChart       = $this->pieChartByPusatRiset($responses);
-        $radarChart     = $this->radarWfaVsWfo($questionnaire, $responses, $modeKerjaMap);
-        $trendChart     = $this->trendChart($questionnaire, $filters_selected, $tahun);
+        $filtersOptions   = $this->filterOptions();
+        $detailResponden  = $this->detailResponden($questionnaire, $responses, $modeKerjaMap, $scores);
 
-        $filtersOptions = $this->filterOptions();
-        $detailResponden = $this->detailResponden($questionnaire, $responses, $modeKerjaMap);
-
-        return view('data.index', [
+        return [
             'stats' => $stats,
             'centers' => $centers,
             'modeKerjaChart' => $modeKerjaChart,
@@ -196,31 +322,7 @@ class DataController extends Controller
             'filters' => $filtersOptions,
             'selected' => $filters_selected,
             'detailResponden' => $detailResponden,
-        ]);
-    }
-
-    /** Rata-rata skor likert per kode kategori, dibatasi ke kumpulan survey_response_id tertentu. */
-    private function avgScoreByCategoryKode(Questionnaire $questionnaire, array $responseIds): array
-    {
-        if (empty($responseIds)) {
-            return [];
-        }
-
-        $rows = DB::table('survey_answers')
-            ->join('questions', 'questions.id', '=', 'survey_answers.question_id')
-            ->join('categories', 'categories.id', '=', 'questions.category_id')
-            ->where('categories.questionnaire_id', $questionnaire->id)
-            ->whereIn('survey_answers.survey_response_id', $responseIds)
-            ->selectRaw('categories.kode as kode, avg(survey_answers.skor) as rata')
-            ->groupBy('categories.kode')
-            ->pluck('rata', 'kode');
-
-        $out = [];
-        foreach ($rows as $kode => $rata) {
-            $out[$kode] = round((float) $rata, 2);
-        }
-
-        return $out;
+        ];
     }
 
     /**
@@ -229,22 +331,15 @@ class DataController extends Controller
      * dengan filter tahun/posisi/q ikut diterapkan (kecuali filter pusat_riset
      * sendiri, supaya tabel tetap menampilkan semua pusat riset untuk dibandingkan).
      */
-    private function researchCenterPerformance(Questionnaire $questionnaire, array $filters): array
+    private function researchCenterPerformance(Collection $allCenterResponses, Collection $scores): array
     {
-        $filtersWithoutPusatRiset = $filters;
-        unset($filtersWithoutPusatRiset['pusat_riset']);
-
-        $responses = $this->baseQuery($questionnaire, $filtersWithoutPusatRiset)
-            ->select('survey_responses.id', 'users.pusat_riset')
-            ->get();
-
-        $byPusat = $responses->groupBy('pusat_riset');
+        $byPusat = $allCenterResponses->groupBy('pusat_riset');
 
         $centers = [];
         foreach (self::PUSAT_RISET as $name) {
             $group = $byPusat->get($name, collect());
             $ids   = $group->pluck('id')->all();
-            $avg   = $this->avgScoreByCategoryKode($questionnaire, $ids);
+            $avg   = $this->aggregateScores($scores, $ids);
 
             $centers[] = [
                 'name'          => $name,
@@ -260,7 +355,7 @@ class DataController extends Controller
     }
 
     /** Bar chart: rata-rata Produktivitas/WLB/Kolaborasi per bucket mode kerja (WFA/WFO/Hybrid). */
-    private function modeKerjaChart(Questionnaire $questionnaire, $responses, array $modeKerjaMap): array
+    private function modeKerjaChart(Collection $responses, array $modeKerjaMap, Collection $scores): array
     {
         $buckets = ['WFA' => [], 'WFO' => [], 'Hybrid' => []];
 
@@ -274,7 +369,7 @@ class DataController extends Controller
         $kolaborasi = [];
 
         foreach (['WFA', 'WFO', 'Hybrid'] as $label) {
-            $avg = $this->avgScoreByCategoryKode($questionnaire, $buckets[$label]);
+            $avg = $this->aggregateScores($scores, $buckets[$label]);
             $produktivitas[] = $avg['motivasi_kerja'] ?? 0.0;
             $wlb[]           = $avg['wlb'] ?? 0.0;
             $kolaborasi[]    = $avg['dukungan_organisasi'] ?? 0.0;
@@ -291,7 +386,7 @@ class DataController extends Controller
     }
 
     /** Pie chart: distribusi jumlah respons (yang lolos filter) per pusat riset. */
-    private function pieChartByPusatRiset($responses): array
+    private function pieChartByPusatRiset(Collection $responses): array
     {
         $counts = $responses->groupBy('pusat_riset')->map->count();
 
@@ -310,7 +405,7 @@ class DataController extends Controller
     }
 
     /** Radar chart: rata-rata skor 5 dimensi terdekat, dibandingkan antara bucket WFA vs WFO. */
-    private function radarWfaVsWfo(Questionnaire $questionnaire, $responses, array $modeKerjaMap): array
+    private function radarWfaVsWfo(Collection $responses, array $modeKerjaMap, Collection $scores): array
     {
         $wfaIds = [];
         $wfoIds = [];
@@ -324,8 +419,8 @@ class DataController extends Controller
             }
         }
 
-        $avgWfa = $this->avgScoreByCategoryKode($questionnaire, $wfaIds);
-        $avgWfo = $this->avgScoreByCategoryKode($questionnaire, $wfoIds);
+        $avgWfa = $this->aggregateScores($scores, $wfaIds);
+        $avgWfo = $this->aggregateScores($scores, $wfoIds);
 
         // Dimensi radar dipetakan ke kode kategori yang tersedia di instrumen.
         $dimensions = [
@@ -361,28 +456,20 @@ class DataController extends Controller
      * Filter pusat_riset/posisi/q tetap diterapkan; filter mode_kerja tidak
      * (perlu join tambahan per bulan) — cukup konsisten dengan chart lain
      * yang sudah scoped ke tahun terpilih.
+     *
+     * Menerima $rows (hasil query response id + submitted_at) dan $scores
+     * (peta skor per response, sudah diambil sekali di index()) — tidak lagi
+     * melakukan query baru per bulan seperti sebelumnya.
      */
-    private function trendChart(Questionnaire $questionnaire, array $filters, string $tahun): array
+    private function trendChart(Collection $rows, Collection $scores, string $tahun): array
     {
-        $filtersForTrend = $filters;
-        // Jika tahun kosong, tidak filter per tahun — tampilkan semua data
-        if (! empty($tahun)) {
-            $filtersForTrend['tahun'] = $tahun;
-        } else {
-            unset($filtersForTrend['tahun']);
-        }
-
-        $rows = $this->baseQuery($questionnaire, $filtersForTrend)
-            ->whereNotNull('survey_responses.submitted_at')
-            ->select('survey_responses.id', 'survey_responses.submitted_at')
-            ->get()
-            ->groupBy(fn ($r) => date('Y-m', strtotime($r->submitted_at)));
+        $grouped = $rows->groupBy(fn ($r) => date('Y-m', strtotime($r->submitted_at)));
 
         $monthLabels = ['01' => 'Jan', '02' => 'Feb', '03' => 'Mar', '04' => 'Apr',
                         '05' => 'May', '06' => 'Jun', '07' => 'Jul', '08' => 'Aug',
                         '09' => 'Sep', '10' => 'Oct', '11' => 'Nov', '12' => 'Dec'];
 
-        $keys = $rows->keys()->sort()->values();
+        $keys = $grouped->keys()->sort()->values();
 
         if ($keys->isEmpty()) {
             return [
@@ -401,8 +488,8 @@ class DataController extends Controller
         $labels = [];
 
         foreach ($keys as $yearMonth) {
-            $ids = $rows->get($yearMonth, collect())->pluck('id')->all();
-            $avg = $this->avgScoreByCategoryKode($questionnaire, $ids);
+            $ids = $grouped->get($yearMonth, collect())->pluck('id')->all();
+            $avg = $this->aggregateScores($scores, $ids);
 
             // Label: "Jan 2025" jika lintas tahun, cukup "Jan" jika satu tahun
             [$yr, $mo] = explode('-', $yearMonth);
@@ -475,8 +562,11 @@ class DataController extends Controller
      * Tabel detail responden: satu baris per response yang lolos filter,
      * berisi data user + demografi + rata-rata skor per kategori.
      * Hanya ditampilkan untuk admin (dicek di view).
+     *
+     * Menerima $scores (peta skor per response, sudah diambil sekali di index())
+     * — tidak lagi melakukan query AVG(...) sendiri seperti sebelumnya.
      */
-    private function detailResponden(Questionnaire $questionnaire, $responses, array $modeKerjaMap): array
+    private function detailResponden(Questionnaire $questionnaire, Collection $responses, array $modeKerjaMap, Collection $scores): array
     {
         if ($responses->isEmpty()) {
             return [];
@@ -484,7 +574,9 @@ class DataController extends Controller
 
         $responseIds = $responses->pluck('id')->all();
 
-        // Ambil data demografi (field_key => value) per response_id
+        // Ambil data demografi (field_key => value) per response_id — ini query
+        // terpisah dari `survey_answers` (tabel & data berbeda), jadi tetap perlu
+        // query sendiri, tapi tetap hanya 1 query untuk semua response.
         $demografiRows = DB::table('survey_demografi')
             ->join('demografi_fields', 'demografi_fields.id', '=', 'survey_demografi.demografi_field_id')
             ->join('categories', 'categories.id', '=', 'demografi_fields.category_id')
@@ -495,26 +587,10 @@ class DataController extends Controller
             ->groupBy('survey_response_id')
             ->map(fn ($rows) => $rows->pluck('value', 'field_key')->all());
 
-        // Ambil rata-rata skor per kategori per response_id
-        $avgRows = DB::table('survey_answers')
-            ->join('questions', 'questions.id', '=', 'survey_answers.question_id')
-            ->join('categories', 'categories.id', '=', 'questions.category_id')
-            ->where('categories.questionnaire_id', $questionnaire->id)
-            ->whereIn('survey_answers.survey_response_id', $responseIds)
-            ->selectRaw('survey_answers.survey_response_id, categories.kode, AVG(survey_answers.skor) as rata')
-            ->groupBy('survey_answers.survey_response_id', 'categories.kode')
-            ->get()
-            ->groupBy('survey_response_id')
-            ->map(fn ($rows) => $rows->pluck('rata', 'kode')->map(fn ($v) => round((float) $v, 2))->all());
-
-        // Ambil data user per response
-        $userMap = $responses->keyBy('id');
-
-        // Gabungkan semua data
         $result = [];
         foreach ($responses as $r) {
             $demografi = $demografiRows[$r->id] ?? [];
-            $avg       = $avgRows[$r->id] ?? [];
+            $avg       = $scores[$r->id] ?? [];
 
             $result[] = [
                 'response_id'  => $r->id,
@@ -564,7 +640,16 @@ class DataController extends Controller
             ])->all();
         }
 
-        return $this->researchCenterPerformance($questionnaire, $filters);
+        $filtersWithoutPusatRiset = $filters;
+        unset($filtersWithoutPusatRiset['pusat_riset']);
+
+        $allCenterResponses = $this->baseQuery($questionnaire, $filtersWithoutPusatRiset)
+            ->select('survey_responses.id', 'users.pusat_riset')
+            ->get();
+
+        $scores = $this->scoresByResponse($questionnaire, $allCenterResponses->pluck('id')->all());
+
+        return $this->researchCenterPerformance($allCenterResponses, $scores);
     }
 
     public function exportPusatRisetExcel(Request $request)
@@ -628,7 +713,9 @@ class DataController extends Controller
             )->values();
         }
 
-        return $this->detailResponden($questionnaire, $responses, $modeKerjaMap);
+        $scores = $this->scoresByResponse($questionnaire, $responses->pluck('id')->all());
+
+        return $this->detailResponden($questionnaire, $responses, $modeKerjaMap, $scores);
     }
 
     public function exportRespondenExcel(Request $request)
@@ -672,8 +759,8 @@ class DataController extends Controller
         ]);
     }
 
-    /** Fallback view kalau belum ada kuisioner aktif sama sekali (DB baru/kosong). */
-    private function emptyView(Request $request, string $tahun)
+    /** Fallback data kalau belum ada kuisioner aktif sama sekali (DB baru/kosong). */
+    private function emptyPayload(Request $request, string $tahun): array
     {
         $tahun = $tahun ?: '';
         $stats = [
@@ -689,7 +776,7 @@ class DataController extends Controller
 
         $empty3 = ['WFA' => 0.0, 'WFO' => 0.0, 'Hybrid' => 0.0];
 
-        return view('data.index', [
+        return [
             'stats' => $stats,
             'centers' => $centers,
             'modeKerjaChart' => [
@@ -723,6 +810,6 @@ class DataController extends Controller
             'filters' => $this->filterOptions(),
             'selected' => $request->only(['tahun', 'pusat_riset', 'posisi', 'mode_kerja', 'q']),
             'detailResponden' => [],
-        ]);
+        ];
     }
 }

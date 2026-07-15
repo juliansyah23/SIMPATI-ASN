@@ -10,8 +10,13 @@
         <h1 class="text-3xl font-extrabold text-gray-900">Data Hasil Kuisioner Psikososial</h1>
         <p class="text-gray-500 mt-2">Analisis komprehensif kondisi psikososial ASN berdasarkan hasil kuisioner</p>
 
+        {{-- indikator loading kecil saat AJAX jalan --}}
+        <div id="data-loading" class="hidden fixed top-4 right-4 z-50 bg-gray-900 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-lg">
+            Memuat data...
+        </div>
+
         {{-- Filter Data --}}
-        <form method="GET" action="{{ route('data') }}"
+        <form id="data-filter-form"
               class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8 mt-8">
             <div class="flex items-center gap-2 mb-5">
                 <i data-lucide="filter" class="w-5 h-5 text-gray-700"></i>
@@ -19,7 +24,7 @@
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <select name="tahun" onchange="this.form.submit()"
+                <select name="tahun"
                         class="h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
                     @foreach ($filters['tahun'] as $tahun)
                         @php $val = $tahun === 'Semua Tahun' ? '' : $tahun; @endphp
@@ -27,7 +32,7 @@
                     @endforeach
                 </select>
 
-                <select name="pusat_riset" onchange="this.form.submit()"
+                <select name="pusat_riset"
                         class="h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
                     @foreach ($filters['pusat_riset'] as $value => $label)
                         <option value="{{ $value === 'Semua Pusat Riset' ? '' : $value }}"
@@ -37,7 +42,7 @@
                     @endforeach
                 </select>
 
-                <select name="posisi" onchange="this.form.submit()"
+                <select name="posisi"
                         class="h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
                     @foreach ($filters['posisi'] as $value => $label)
                         <option value="{{ $value === 'Semua Posisi' ? '' : $value }}"
@@ -47,7 +52,7 @@
                     @endforeach
                 </select>
 
-                <select name="mode_kerja" onchange="this.form.submit()"
+                <select name="mode_kerja"
                         class="h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
                     @foreach ($filters['mode_kerja'] as $value => $label)
                         <option value="{{ $value === 'Semua Mode Kerja' ? '' : $value }}"
@@ -66,17 +71,8 @@
         </form>
 
         {{-- Stat cards --}}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
-            @foreach ($stats as $stat)
-                <x-data-stat-card
-                    :icon="$stat['icon']"
-                    :color="$stat['color']"
-                    :label="$stat['label']"
-                    :value="$stat['value']"
-                    :unit="$stat['unit']"
-                    :subtitle="$stat['subtitle']"
-                />
-            @endforeach
+        <div id="stats-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
+            @include('data.partials.stat-cards', ['stats' => $stats])
         </div>
 
         {{-- Row: Bar chart + Pie chart --}}
@@ -114,7 +110,7 @@
             </div>
 
             <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                <h3 class="text-base font-bold text-gray-900 mb-4">Tren Psikososial {{ ($selected['tahun'] ?? '') ?: 'Semua Tahun' }}</h3>
+                <h3 id="trend-title" class="text-base font-bold text-gray-900 mb-4">Tren Psikososial {{ ($selected['tahun'] ?? '') ?: 'Semua Tahun' }}</h3>
                 <div class="relative h-80"><canvas id="trendChart"></canvas></div>
                 <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 mt-4 text-sm text-gray-600">
                     @foreach ($trendChart['datasets'] as $ds)
@@ -131,11 +127,11 @@
             <div class="flex items-center justify-between mb-5">
                 <h2 class="text-lg font-bold text-gray-900">Performa per Pusat Riset</h2>
                 <div class="flex items-center gap-2">
-                    <a href="{{ route('data.export.pusatRiset.excel', array_filter($selected ?? [])) }}"
+                    <a id="export-pusatriset-excel" href="{{ route('data.export.pusatRiset.excel', array_filter($selected ?? [])) }}"
                        class="inline-flex items-center gap-2 px-4 h-11 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-semibold transition">
                         <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i> Excel
                     </a>
-                    <a href="{{ route('data.export.pusatRiset.pdf', array_filter($selected ?? [])) }}" target="_blank"
+                    <a id="export-pusatriset-pdf" href="{{ route('data.export.pusatRiset.pdf', array_filter($selected ?? [])) }}" target="_blank"
                        class="inline-flex items-center gap-2 px-4 h-11 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold shadow-sm transition">
                         <i data-lucide="file-text" class="w-4 h-4"></i> PDF
                     </a>
@@ -154,33 +150,8 @@
                             <th class="text-center font-semibold px-3 py-3">Stres</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-50">
-                        @foreach ($centers as $center)
-                            <tr>
-                                <td class="px-3 py-4 font-semibold text-gray-800">{{ $center['name'] }}</td>
-                                <td class="px-3 py-4 text-center text-blue-600 font-semibold">{{ $center['respons'] }}</td>
-                                <td class="px-3 py-4 text-center">
-                                    <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold {{ $center['produktivitas'] >= 4.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
-                                        {{ number_format($center['produktivitas'], 1) }}
-                                    </span>
-                                </td>
-                                <td class="px-3 py-4 text-center">
-                                    <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold {{ $center['kolaborasi'] >= 4.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
-                                        {{ number_format($center['kolaborasi'], 1) }}
-                                    </span>
-                                </td>
-                                <td class="px-3 py-4 text-center">
-                                    <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold {{ $center['wlb'] >= 4.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">
-                                        {{ number_format($center['wlb'], 1) }}
-                                    </span>
-                                </td>
-                                <td class="px-3 py-4 text-center">
-                                    <span class="inline-flex px-3 py-1 rounded-full text-xs font-bold {{ $center['stres'] <= 2.0 ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700' }}">
-                                        {{ number_format($center['stres'], 1) }}
-                                    </span>
-                                </td>
-                            </tr>
-                        @endforeach
+                    <tbody id="centers-table-body" class="divide-y divide-gray-50">
+                        @include('data.partials.centers-table', ['centers' => $centers])
                     </tbody>
                 </table>
             </div>
@@ -193,87 +164,20 @@
             <div class="flex items-center justify-between mb-6">
                 <h2 class="text-lg font-bold text-gray-900">Data Detail Responden</h2>
                 <div class="flex items-center gap-2">
-                    <a href="{{ route('data.export.responden.excel', array_filter($selected ?? [])) }}"
+                    <a id="export-responden-excel" href="{{ route('data.export.responden.excel', array_filter($selected ?? [])) }}"
                        class="inline-flex items-center gap-2 px-4 h-11 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-semibold transition">
                         <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i> Excel
                     </a>
-                    <a href="{{ route('data.export.responden.pdf', array_filter($selected ?? [])) }}" target="_blank"
+                    <a id="export-responden-pdf" href="{{ route('data.export.responden.pdf', array_filter($selected ?? [])) }}" target="_blank"
                        class="inline-flex items-center gap-2 px-4 h-11 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold shadow-sm transition">
                         <i data-lucide="file-text" class="w-4 h-4"></i> PDF
                     </a>
                 </div>
             </div>
 
-            
-                    @if(count($detailResponden) > 0)
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-xs">
-                                <thead class="text-gray-500 border-b border-gray-100 bg-gray-50">
-                                    <tr>
-                                        <th class="text-left font-semibold px-3 py-3 whitespace-nowrap">NIP</th>
-                                        <th class="text-left font-semibold px-3 py-3 whitespace-nowrap">Nama</th>
-                                        <th class="text-left font-semibold px-3 py-3 whitespace-nowrap">Pusat Riset</th>
-                                        <th class="text-left font-semibold px-3 py-3 whitespace-nowrap">Posisi</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">Kelamin</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">Usia</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">Lama Kerja</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">Mode Kerja</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">I. Kebijakan</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">II. Motivasi</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">III. Kepuasan</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">IV. Engagement</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">V. Stres</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">VI. Dukungan</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">VII. WLB</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">Rata-rata</th>
-                                        <th class="text-center font-semibold px-3 py-3 whitespace-nowrap">Tgl Submit</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-50">
-                                    @foreach ($detailResponden as $row)
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-3 py-3 font-mono text-gray-600 whitespace-nowrap">{{ $row['nip'] }}</td>
-                                            <td class="px-3 py-3 font-semibold text-gray-800 whitespace-nowrap">{{ $row['nama'] }}</td>
-                                            <td class="px-3 py-3 text-gray-600 whitespace-nowrap max-w-[160px] truncate" title="{{ $row['pusat_riset'] }}">{{ $row['pusat_riset'] }}</td>
-                                            <td class="px-3 py-3 text-gray-600 whitespace-nowrap">{{ $row['posisi'] }}</td>
-                                            <td class="px-3 py-3 text-center text-gray-600">{{ $row['jenis_kelamin'] }}</td>
-                                            <td class="px-3 py-3 text-center text-gray-600 whitespace-nowrap">{{ $row['usia'] }}</td>
-                                            <td class="px-3 py-3 text-center text-gray-600 whitespace-nowrap">{{ $row['lama_bekerja'] }}</td>
-                                            <td class="px-3 py-3 text-center">
-                                                <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold
-                                                    {{ $row['mode_kerja'] === 'WFA' ? 'bg-blue-100 text-blue-700' : ($row['mode_kerja'] === 'WFO' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700') }}">
-                                                    {{ $row['mode_kerja'] }}
-                                                </span>
-                                            </td>
-                                            @foreach ($row['per_kategori'] as $kode => $skor)
-                                                <td class="px-3 py-3 text-center">
-                                                    @if($skor !== '-')
-                                                        <span class="font-semibold {{ (float)$skor >= 4.0 ? 'text-emerald-600' : ((float)$skor >= 3.0 ? 'text-amber-600' : 'text-red-500') }}">
-                                                            {{ $skor }}
-                                                        </span>
-                                                    @else
-                                                        <span class="text-gray-300">-</span>
-                                                    @endif
-                                                </td>
-                                            @endforeach
-                                            <td class="px-3 py-3 text-center font-bold text-gray-800">{{ $row['rata_rata'] }}</td>
-                                            <td class="px-3 py-3 text-center text-gray-500 whitespace-nowrap">{{ $row['submitted_at'] }}</td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                        <p class="text-xs text-gray-400 mt-4">Menampilkan {{ count($detailResponden) }} responden sesuai filter aktif.</p>
-                    @else
-                        <div class="text-center py-12">
-                            <span class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-gray-50 text-gray-300 mb-4">
-                                <i data-lucide="inbox" class="w-6 h-6"></i>
-                            </span>
-                            <p class="text-sm font-semibold text-gray-500">Belum ada data responden</p>
-                            <p class="text-xs text-gray-400 mt-1">Coba ubah filter atau tunggu pengisian kuisioner.</p>
-                        </div>
-                    @endif
-            
+            <div id="detail-responden-container">
+                @include('data.partials.detail-table', ['detailResponden' => $detailResponden])
+            </div>
         </div>
         @endif
         @endauth
@@ -283,12 +187,19 @@
 
 @push('scripts')
     <script>
+        const initialCharts = {
+            modeKerjaChart: @json($modeKerjaChart),
+            pieChart:       @json($pieChart),
+            radarChart:     @json($radarChart),
+            trendChart:     @json($trendChart),
+        };
+
         // ---- Bar: Perbandingan Mode Kerja ----
-        new Chart(document.getElementById('modeKerjaChart'), {
+        const modeKerjaChartInstance = new Chart(document.getElementById('modeKerjaChart'), {
             type: 'bar',
             data: {
-                labels: @json($modeKerjaChart['labels']),
-                datasets: @json($modeKerjaChart['datasets']).map(ds => ({
+                labels: initialCharts.modeKerjaChart.labels,
+                datasets: initialCharts.modeKerjaChart.datasets.map(ds => ({
                     label: ds.label,
                     data: ds.data,
                     backgroundColor: ds.color,
@@ -304,13 +215,13 @@
         });
 
         // ---- Pie: Distribusi Respons per Pusat Riset ----
-        new Chart(document.getElementById('pieChart'), {
+        const pieChartInstance = new Chart(document.getElementById('pieChart'), {
             type: 'pie',
             data: {
-                labels: @json($pieChart['labels']),
+                labels: initialCharts.pieChart.labels,
                 datasets: [{
-                    data: @json($pieChart['data']),
-                    backgroundColor: @json($pieChart['colors']),
+                    data: initialCharts.pieChart.data,
+                    backgroundColor: initialCharts.pieChart.colors,
                     borderWidth: 2,
                     borderColor: '#fff',
                 }],
@@ -330,11 +241,11 @@
         });
 
         // ---- Radar: Profil Psikososial WFA vs WFO ----
-        new Chart(document.getElementById('radarChart'), {
+        const radarChartInstance = new Chart(document.getElementById('radarChart'), {
             type: 'radar',
             data: {
-                labels: @json($radarChart['labels']),
-                datasets: @json($radarChart['datasets']).map(ds => ({
+                labels: initialCharts.radarChart.labels,
+                datasets: initialCharts.radarChart.datasets.map(ds => ({
                     label: ds.label,
                     data: ds.data,
                     borderColor: ds.color,
@@ -351,11 +262,11 @@
         });
 
         // ---- Line: Tren Psikososial ----
-        new Chart(document.getElementById('trendChart'), {
+        const trendChartInstance = new Chart(document.getElementById('trendChart'), {
             type: 'line',
             data: {
-                labels: @json($trendChart['labels']),
-                datasets: @json($trendChart['datasets']).map(ds => ({
+                labels: initialCharts.trendChart.labels,
+                datasets: initialCharts.trendChart.datasets.map(ds => ({
                     label: ds.label,
                     data: ds.data,
                     borderColor: ds.color,
@@ -370,6 +281,92 @@
                 plugins: { legend: { display: false } },
                 scales: { y: { beginAtZero: true, max: 5 } },
             },
+        });
+
+        // ─────────────────────────────────────────────────────────────
+        //  AJAX: ambil ulang data setiap filter berubah, tanpa reload halaman
+        // ─────────────────────────────────────────────────────────────
+        const filterForm   = document.getElementById('data-filter-form');
+        const loadingBadge = document.getElementById('data-loading');
+        const dataUrl      = '{{ route('data.ajax') }}';
+
+        async function refreshData() {
+            const params = new URLSearchParams(new FormData(filterForm)).toString();
+            loadingBadge.classList.remove('hidden');
+
+            try {
+                const res = await fetch(`${dataUrl}?${params}`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (!res.ok) throw new Error('Request gagal');
+                const json = await res.json();
+
+                // Stat cards, tabel pusat riset, tabel detail responden (HTML partial dari server)
+                document.getElementById('stats-container').innerHTML = json.statsHtml;
+                document.getElementById('centers-table-body').innerHTML = json.centersHtml;
+                const detailContainer = document.getElementById('detail-responden-container');
+                if (detailContainer && json.detailHtml !== null) {
+                    detailContainer.innerHTML = json.detailHtml;
+                }
+
+                // Judul chart tren ikut update sesuai filter tahun
+                const trendTitle = document.getElementById('trend-title');
+                if (trendTitle) trendTitle.textContent = json.trendTitle;
+
+                // Update 4 chart Chart.js
+                modeKerjaChartInstance.data.labels = json.modeKerjaChart.labels;
+                modeKerjaChartInstance.data.datasets.forEach((ds, i) => ds.data = json.modeKerjaChart.datasets[i].data);
+                modeKerjaChartInstance.update();
+
+                pieChartInstance.data.labels = json.pieChart.labels;
+                pieChartInstance.data.datasets[0].data = json.pieChart.data;
+                pieChartInstance.update();
+
+                radarChartInstance.data.labels = json.radarChart.labels;
+                radarChartInstance.data.datasets.forEach((ds, i) => ds.data = json.radarChart.datasets[i].data);
+                radarChartInstance.update();
+
+                trendChartInstance.data.labels = json.trendChart.labels;
+                trendChartInstance.data.datasets.forEach((ds, i) => ds.data = json.trendChart.datasets[i].data);
+                trendChartInstance.update();
+
+                // Tombol export ikut bawa filter yang sedang aktif
+                const exportLinks = {
+                    'export-pusatriset-excel': '{{ route('data.export.pusatRiset.excel') }}',
+                    'export-pusatriset-pdf':   '{{ route('data.export.pusatRiset.pdf') }}',
+                    'export-responden-excel':  '{{ route('data.export.responden.excel') }}',
+                    'export-responden-pdf':    '{{ route('data.export.responden.pdf') }}',
+                };
+                Object.entries(exportLinks).forEach(([id, base]) => {
+                    const el = document.getElementById(id);
+                    if (el) el.href = json.exportQuery ? `${base}?${json.exportQuery}` : base;
+                });
+
+                // Render ulang ikon lucide di dalam HTML yang baru disuntikkan
+                if (window.lucide) lucide.createIcons();
+            } catch (err) {
+                console.error('Gagal memuat data:', err);
+            } finally {
+                loadingBadge.classList.add('hidden');
+            }
+        }
+
+        // Dropdown langsung memicu refresh
+        filterForm.querySelectorAll('select').forEach(el => {
+            el.addEventListener('change', refreshData);
+        });
+
+        // Input pencarian pakai debounce 400ms supaya tidak fetch di setiap ketikan
+        let searchTimeout;
+        filterForm.querySelector('input[name="q"]').addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(refreshData, 400);
+        });
+
+        // Cegah submit form biasa (misalnya kalau user pencet Enter di kolom pencarian)
+        filterForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            refreshData();
         });
     </script>
 @endpush

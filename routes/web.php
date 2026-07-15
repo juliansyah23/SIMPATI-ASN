@@ -15,8 +15,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 // ── Public routes ──────────────────────────────────────────────────────────
-Route::get('/',        [DashboardController::class,  'index'])->name('dashboard');
-Route::get('/data',    [DataController::class,       'index'])->name('data');
+Route::get('/',              [DashboardController::class,  'index'])->name('dashboard');
+Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
+Route::get('/data',       [DataController::class,       'index'])->name('data');
+Route::get('/data/ajax',  [DataController::class,       'data'])->name('data.ajax');
 
 // ── Export Data: Performa per Pusat Riset (publik, sama seperti halaman /data) ──
 Route::get('/data/export/pusat-riset/excel', [DataController::class, 'exportPusatRisetExcel'])->name('data.export.pusatRiset.excel');

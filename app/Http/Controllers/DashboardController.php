@@ -114,6 +114,38 @@ class DashboardController extends Controller
 
     public function index(Request $request)
     {
+        return view('dashboard.index', $this->buildPayload($request));
+    }
+
+    /**
+     * Endpoint AJAX: dipanggil saat dropdown kategori berganti. Mengembalikan
+     * data chart mentah (untuk Chart.js) + HTML partial hasil render Blade
+     * untuk daftar distribusi & tabel frekuensi.
+     */
+    public function data(Request $request)
+    {
+        $payload = $this->buildPayload($request);
+
+        return response()->json([
+            'panelHtml' => view('dashboard.partials.category-panel', [
+                'activeCategory' => $payload['activeCategory'],
+                'colors'         => $payload['colors'],
+                'table'          => $payload['table'],
+                'total'          => $payload['total'],
+            ])->render(),
+            'distribution'  => $payload['activeCategory']['distribution'],
+            'labelsLikert'  => $payload['activeCategory']['labels_likert'],
+            'colors'        => $payload['colors'],
+        ]);
+    }
+
+    /**
+     * Menyusun seluruh data yang dibutuhkan halaman Dashboard sesuai kategori
+     * yang dipilih. Dipakai bersama oleh index() (render halaman penuh) dan
+     * data() (AJAX, dipanggil saat dropdown kategori berganti).
+     */
+    private function buildPayload(Request $request): array
+    {
         $questionnaire = $this->activeQuestionnaire();
         $categories    = $this->categoriesWithDistribution($questionnaire);
 
@@ -142,10 +174,10 @@ class DashboardController extends Controller
             ];
         }
 
-        $stats = $this->buildStats($questionnaire);
+        $stats    = $this->buildStats($questionnaire);
         $insights = $this->buildInsights($questionnaire);
 
-        return view('dashboard.index', [
+        return [
             'stats'            => $stats,
             'colors'           => self::CHART_COLORS,
             'categories'       => $categories,
@@ -154,7 +186,7 @@ class DashboardController extends Controller
             'table'            => $table,
             'total'            => $total,
             'insights'         => $insights,
-        ]);
+        ];
     }
 
     /**

@@ -118,7 +118,7 @@
     </div>
 
     {{-- Demo Credentials --}}
-    <div class="w-full max-w-md mt-4 bg-white/70 backdrop-blur-sm border border-gray-100 rounded-2xl px-6 py-4 shadow-sm">
+    <!-- <div class="w-full max-w-md mt-4 bg-white/70 backdrop-blur-sm border border-gray-100 rounded-2xl px-6 py-4 shadow-sm">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Demo Credentials:</p>
         <div class="space-y-2 text-sm">
             <div class="flex items-center justify-between">
@@ -134,7 +134,7 @@
                 </span>
             </div>
         </div>
-    </div>
+    </div> -->
 
 </div>
 @endsection
