@@ -156,6 +156,7 @@
 
             chart = new Chart(ctx, {
                 type: type,
+                plugins: [ChartDataLabels], // ← daftarkan plugin khusus chart ini
                 data: {
                     labels: labels,
                     datasets: [{
@@ -178,6 +179,22 @@
                                     const pct   = total > 0 ? (raw / total * 100).toFixed(1) : '0.0';
                                     return `${ctx.label}: ${raw} responden (${pct}%)`;
                                 },
+                            },
+                        },
+                        datalabels: {
+                            color: '#ffffff',
+                            font: { weight: 'bold', size: 12 },
+                            formatter: (value) => {
+                                const total = data.reduce((a, b) => a + b, 0);
+                                if (total === 0 || value === 0) return '';
+                                const pct = (value / total * 100).toFixed(1);
+                                return `${pct}%`; // bisa diganti jadi `${value}` kalau mau tampilkan angka respondennya
+                            },
+                            display: (ctx) => {
+                                // sembunyikan label kalau slice-nya terlalu kecil (biar nggak numpuk)
+                                const value = ctx.dataset.data[ctx.dataIndex];
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                return total > 0 && (value / total) > 0.03; // sembunyikan jika < 3%
                             },
                         },
                     },

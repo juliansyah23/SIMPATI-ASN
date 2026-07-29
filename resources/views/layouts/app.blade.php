@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'SIMPATI ASN') — Sistem Monitoring Psikososial ASN</title>
+    <link rel="icon" type="image/x-icon" href="{{ asset('images/favicon.png') }}">
 
     {{-- Tailwind via CDN (swap for Vite + npm build in production) --}}
     <script src="https://cdn.tailwindcss.com"></script>
@@ -31,7 +32,7 @@
 
     {{-- Charts --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
     {{-- SweetAlert2 (popup notifikasi) --}}
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 

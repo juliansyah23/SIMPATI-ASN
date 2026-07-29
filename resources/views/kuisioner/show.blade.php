@@ -229,7 +229,7 @@
             @foreach ($current['esai'] as $e)
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-8 py-6">
                     <label for="esai_{{ $e['id'] }}" class="block text-sm font-semibold text-gray-800 mb-3">
-                        {{ $e['pertanyaan'] }}
+                        {{ $e['pertanyaan'] }} <span class="text-red-500">*</span>
                     </label>
                     <textarea
                         id="esai_{{ $e['id'] }}"

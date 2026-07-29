@@ -16,11 +16,32 @@
 return [
 
     'posisi' => [
-        'Peneliti',
-        'Perekayasa',
-        'Analis Data Ilmiah',
-        'Analis Pemanfaatan IPTEK',
-        'Teknisi Litkayasa',
+       "Peneliti Ahli Pertama",
+        "Peneliti Ahli Muda",
+        "Peneliti Ahli Madya",
+        "Peneliti Ahli Utama",
+
+        "Perekayasa Ahli Pertama",
+        "Perekayasa Ahli Muda",
+        "Perekayasa Ahli Madya",
+        "Perekayasa Ahli Utama",
+
+        "Analis Data Ilmiah Ahli Pertama",
+        "Analis Data Ilmiah Ahli Muda",
+        "Analis Data Ilmiah Ahli Madya",
+        "Analis Data Ilmiah Ahli Utama",
+
+        "Analis Pemanfaatan IPTEK Ahli Pertama",
+        "Analis Pemanfaatan IPTEK Ahli Muda",
+        "Analis Pemanfaatan IPTEK Ahli Madya",
+        "Analis Pemanfaatan IPTEK Ahli Utama",
+
+        "Teknisi Litkayasa Terampil",
+        "Teknisi Litkayasa Mahir",
+        "Teknisi Litkayasa Penyelia",
+        "Teknisi Litkayasa Ahli Pertama",
+        "Teknisi Litkayasa Ahli Muda",
+        "Teknisi Litkayasa Ahli Madya"
     ],
 
     'pusat_riset' => [

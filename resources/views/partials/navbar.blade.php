@@ -9,9 +9,7 @@
 
         {{-- Logo --}}
         <a href="{{ route('dashboard') }}" class="flex items-center gap-3">
-            <span class="flex items-center justify-center w-10 h-10 rounded-xl bg-brand-600 text-white">
-                <i data-lucide="shield" class="w-5 h-5"></i>
-            </span>
+            <img src="{{ asset('images/favicon.png') }}" alt="Logo SIMPATI ASN" class="w-10 h-10 rounded-xl object-cover">
             <span class="leading-tight">
                 <span class="block text-lg font-extrabold tracking-tight text-gray-900">SIMPATI ASN</span>
                 <span class="block text-xs text-gray-500">Sistem Monitoring Psikososial ASN</span>

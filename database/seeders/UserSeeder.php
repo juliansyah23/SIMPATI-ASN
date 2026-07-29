@@ -20,7 +20,7 @@ class UserSeeder extends Seeder
                 'nip'         => '198001012010011001',
                 'name'        => 'Admin SIMPATI ASN',
                 'institusi'   => 'BRIN',
-                'pusat_riset' => 'Pusat Riset Komputasi',
+                'pusat_riset' => 'Pusat Riset Sains Data dan Informasi',
                 'posisi'      => 'Analis Data Ilmiah',
                 'role'        => 'admin',
                 'password'    => Hash::make('admin123'),

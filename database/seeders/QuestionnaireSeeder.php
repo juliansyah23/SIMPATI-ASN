@@ -31,16 +31,6 @@ class QuestionnaireSeeder extends Seeder
             ]
         );
 
-        Questionnaire::firstOrCreate(
-            ['judul' => 'Kuisioner Evaluasi Kinerja 2023'],
-            [
-                'tahun'      => '2023',
-                'deskripsi'  => 'Kuisioner evaluasi kinerja pegawai tahun 2023.',
-                'status'     => 'ditutup',
-                'created_by' => $admin?->id,
-            ]
-        );
-
         // Struktur 8 kategori hanya dibuat untuk kuisioner aktif (q1) — sesuai data asli.
         $this->buildCategories($q1);
     }

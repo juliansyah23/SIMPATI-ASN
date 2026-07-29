@@ -294,7 +294,8 @@ class KuisionerController extends Controller
                 $messages["jawaban.{$q['id']}.required"] = 'Semua pertanyaan wajib dijawab.';
             }
             foreach ($current['esai'] as $e) {
-                $rules["esai.{$e['id']}"] = ['nullable', 'string'];
+                $rules["esai.{$e['id']}"] = ['required', 'string'];
+                $messages["esai.{$q['id']}.required"] = 'Semua pertanyaan wajib dijawab.';
             }
             $request->validate($rules, $messages);
         }
@@ -363,7 +364,8 @@ class KuisionerController extends Controller
             $messages["jawaban.{$q['id']}.required"] = 'Semua pertanyaan wajib dijawab.';
         }
         foreach ($last['esai'] as $e) {
-            $rules["esai.{$e['id']}"] = ['nullable', 'string'];
+            $rules["esai.{$e['id']}"] = ['required', 'string'];
+            $messages["esai.{$q['id']}.required"] = 'Semua pertanyaan wajib dijawab.';
         }
         $request->validate($rules, $messages);
 
