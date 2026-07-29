@@ -94,7 +94,12 @@ class AdminController extends Controller
     //  Users dari DB (dengan filter pencarian)
     // ──────────────────────────────────────────────────────────────────────
 
-    private function users(string $search = ''): array
+    /**
+     * Dipaginasi (25/halaman) karena tabel users sudah berisi ratusan baris
+     * (impor data OREI) — mengambil semuanya sekaligus lewat get() akan berat
+     * dan tabelnya jadi terlalu panjang untuk di-scroll.
+     */
+    private function users(string $search = '', string $pusatRiset = '')
     {
         $query = User::orderByDesc('created_at');
 
@@ -106,7 +111,11 @@ class AdminController extends Controller
             });
         }
 
-        return $query->get()->map(fn ($u) => [
+        if ($pusatRiset !== '') {
+            $query->where('pusat_riset', $pusatRiset);
+        }
+
+        return $query->paginate(25)->withQueryString()->through(fn ($u) => [
             'id'        => $u->id,
             'nip'       => $u->nip,
             'name'      => $u->name,
@@ -114,7 +123,7 @@ class AdminController extends Controller
             'role'      => $u->role,
             'status'    => 'active',   // kolom status belum ada di tabel; semua aktif
             'bergabung' => $u->created_at->format('d/m/Y'),
-        ])->all();
+        ]);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -163,17 +172,20 @@ class AdminController extends Controller
 
     public function index(Request $request)
     {
-        $tab        = $request->query('tab', 'overview');
-        $searchUser = $request->query('q', '');
+        $tab             = $request->query('tab', 'overview');
+        $searchUser      = $request->query('q', '');
+        $pusatRisetUser  = $request->query('pusat_riset', '');
 
         return view('admin.index', [
-            'tab'            => $tab,
-            'stats'          => $this->stats(),
-            'activityChart'  => $this->activityChart(),
-            'users'          => $this->users($searchUser),
-            'questionnaires' => $this->questionnaires(),
-            'searchUser'     => $searchUser,
-            'quickSummary'   => $this->quickSummary(),
+            'tab'                => $tab,
+            'stats'              => $this->stats(),
+            'activityChart'      => $this->activityChart(),
+            'users'              => $this->users($searchUser, $pusatRisetUser),
+            'questionnaires'     => $this->questionnaires(),
+            'searchUser'         => $searchUser,
+            'pusatRisetUser'     => $pusatRisetUser,
+            'pusatRisetOptions'  => config('options.pusat_riset'),
+            'quickSummary'       => $this->quickSummary(),
         ]);
     }
 
@@ -320,6 +332,59 @@ class AdminController extends Controller
             'u'       => $user,
             'riwayat' => $riwayat,
         ]);
+    }
+
+    public function createUser()
+    {
+        return view('admin.user-create', [
+            'pusatRiset' => config('options.pusat_riset'),
+            'posisiList' => config('options.posisi'),
+        ]);
+    }
+
+    public function storeUser(Request $request)
+    {
+        $validated = $request->validate([
+            'nip'         => ['nullable', 'digits_between:15,18', Rule::unique('users', 'nip')],
+            'name'        => ['required', 'string', 'max:255'],
+            'email'       => ['required', 'email', 'ends_with:brin.go.id', Rule::unique('users', 'email')],
+            'institusi'   => ['required', 'string', 'max:100'],
+            'pusat_riset' => ['required', 'string', 'in:' . implode(',', config('options.pusat_riset'))],
+            'posisi'      => ['required', 'string', 'in:' . implode(',', config('options.posisi'))],
+            'role'        => ['required', 'string', 'in:admin,pegawai'],
+            'password'    => ['required', 'confirmed', Password::min(6)],
+        ], [
+            'nip.digits_between'    => 'NIP harus terdiri dari 15–18 digit angka.',
+            'nip.unique'            => 'NIP ini sudah dipakai user lain.',
+            'name.required'         => 'Nama lengkap wajib diisi.',
+            'email.required'        => 'Email wajib diisi.',
+            'email.email'           => 'Format email tidak valid.',
+            'email.ends_with'       => 'Email harus menggunakan domain @brin.go.id.',
+            'email.unique'          => 'Email ini sudah dipakai user lain.',
+            'institusi.required'    => 'Institusi wajib diisi.',
+            'pusat_riset.required'  => 'Pusat Riset wajib dipilih.',
+            'pusat_riset.in'        => 'Pusat Riset yang dipilih tidak valid.',
+            'posisi.required'       => 'Posisi wajib dipilih.',
+            'posisi.in'             => 'Posisi yang dipilih tidak valid.',
+            'role.required'         => 'Role wajib dipilih.',
+            'role.in'               => 'Role yang dipilih tidak valid.',
+            'password.required'     => 'Password wajib diisi.',
+            'password.confirmed'    => 'Konfirmasi password tidak cocok.',
+        ]);
+
+        $user = User::create([
+            'nip'         => $validated['nip'] ?: null,
+            'name'        => $validated['name'],
+            'email'       => $validated['email'],
+            'institusi'   => $validated['institusi'],
+            'pusat_riset' => $validated['pusat_riset'],
+            'posisi'      => $validated['posisi'],
+            'role'        => $validated['role'],
+            'password'    => Hash::make($validated['password']),
+        ]);
+
+        return redirect()->route('admin.index', ['tab' => 'users'])
+            ->with('success', "User \"{$user->name}\" berhasil dibuat.");
     }
 
     public function editUser(int $id)

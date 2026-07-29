@@ -6,6 +6,7 @@ use App\Http\Controllers\TentangController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\KuisionerController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -38,6 +39,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/kuisioner/{id}',         [KuisionerController::class, 'show'])->name('kuisioner.show');
     Route::post('/kuisioner/{id}/step',   [KuisionerController::class, 'step'])->name('kuisioner.step');
     Route::post('/kuisioner/{id}/submit', [KuisionerController::class, 'submit'])->name('kuisioner.submit');
+
+    Route::get('/profil', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::put('/profil', [ProfileController::class, 'update'])->name('profile.update');
 });
 
 // ── Admin routes (wajib login + role admin) ─────────────────────────────────
@@ -52,6 +56,8 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->group(function () {
     Route::get('/kuisioner/{id}/respons/export/excel', [AdminController::class, 'exportKuisionerResponsExcel'])->name('admin.kuisioner.respons.export.excel');
     Route::get('/kuisioner/{id}/respons/export/pdf',   [AdminController::class, 'exportKuisionerResponsPdf'])->name('admin.kuisioner.respons.export.pdf');
     Route::delete('/kuisioner/{id}',        [AdminController::class, 'deleteKuisioner'])->name('admin.kuisioner.delete');
+    Route::get('/user/create',              [AdminController::class, 'createUser'])->name('admin.user.create');
+    Route::post('/user',                    [AdminController::class, 'storeUser'])->name('admin.user.store');
     Route::get('/user/{id}',                [AdminController::class, 'showUser'])->name('admin.user.show');
     Route::get('/user/{id}/edit',           [AdminController::class, 'editUser'])->name('admin.user.edit');
     Route::put('/user/{id}',                [AdminController::class, 'updateUser'])->name('admin.user.update');

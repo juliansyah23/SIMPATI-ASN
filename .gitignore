@@ -1,5 +1,11 @@
 *.log
 .DS_Store
+.copilot
+.docker
+.vscode-server
+.cache
+.claude
+.net
 .env
 .env.backup
 .env.production
@@ -19,6 +25,11 @@
 /storage/*.key
 /storage/pail
 /vendor
+
+# Sertifikat SSL (private key) & data seed pegawai (PII: nama, email, hash password asli) —
+# tidak boleh masuk repo publik.
+/cert
+/database/seeders/data
 Homestead.json
 Homestead.yaml
 Thumbs.db

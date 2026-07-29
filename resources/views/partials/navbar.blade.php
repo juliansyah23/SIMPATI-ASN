@@ -52,11 +52,13 @@
                 </a>
                 @endif
 
-                {{-- User chip --}}
-                <div class="flex items-center gap-1.5 px-3 h-10 text-sm text-gray-600">
+                {{-- User chip / Profil Saya --}}
+                <a href="{{ route('profile.edit') }}"
+                   class="flex items-center gap-1.5 px-3 h-10 rounded-lg text-sm transition
+                          {{ request()->routeIs('profile.edit') ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100' }}">
                     <i data-lucide="user-circle-2" class="w-4 h-4"></i>
                     <span class="font-medium">{{ $userName }}</span>
-                </div>
+                </a>
 
                 {{-- Logout --}}
                 <form method="POST" action="{{ route('logout') }}">

@@ -112,26 +112,41 @@
         {{-- ════════════════  TAB: MANAJEMEN USER  ════════════════ --}}
         <div id="tab-users" class="tab-content p-6 {{ $tab === 'users' ? 'active' : '' }}">
             <div class="flex items-center justify-between mb-5">
-                <h2 class="text-base font-bold text-gray-800">Manajemen User</h2>
-                <button type="button"
+                <h2 class="text-base font-bold text-gray-800">Manajemen User <span class="text-gray-400 font-normal">({{ $users->total() }})</span></h2>
+                <a href="{{ route('admin.user.create') }}"
                     class="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-sm transition-colors">
                     <i data-lucide="plus" class="w-4 h-4"></i> Tambah User
-                </button>
+                </a>
             </div>
 
-            {{-- Search --}}
-            <div class="relative mb-5">
-                <span class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <i data-lucide="search" class="w-4 h-4 text-gray-400"></i>
-                </span>
-                <input
-                    type="text"
-                    id="userSearch"
-                    placeholder="Cari user berdasarkan nama, email, atau NIP..."
-                    value="{{ $searchUser }}"
-                    class="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
-                >
-            </div>
+            {{-- Search & filter (server-side, karena tabel sudah dipaginasi) --}}
+            <form method="GET" action="{{ route('admin.index') }}" id="userFilterForm" class="flex flex-col md:flex-row gap-3 mb-5">
+                <input type="hidden" name="tab" value="users">
+                <div class="relative flex-1">
+                    <span class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i data-lucide="search" class="w-4 h-4 text-gray-400"></i>
+                    </span>
+                    <input
+                        type="text"
+                        name="q"
+                        id="userSearch"
+                        placeholder="Cari user berdasarkan nama, email, atau NIP..."
+                        value="{{ $searchUser }}"
+                        class="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
+                    >
+                </div>
+                <select name="pusat_riset" id="userPusatRisetFilter"
+                    class="md:w-72 px-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition">
+                    <option value="">Semua Pusat Riset</option>
+                    @foreach ($pusatRisetOptions as $pr)
+                        <option value="{{ $pr }}" {{ $pusatRisetUser === $pr ? 'selected' : '' }}>{{ $pr }}</option>
+                    @endforeach
+                </select>
+                <button type="submit"
+                    class="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+                    Cari
+                </button>
+            </form>
 
             {{-- Table --}}
             <div class="overflow-x-auto">
@@ -148,11 +163,8 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-50" id="userTableBody">
-                        @foreach ($users as $u)
-                        <tr class="hover:bg-gray-50 transition user-row"
-                            data-name="{{ strtolower($u['name']) }}"
-                            data-email="{{ strtolower($u['email']) }}"
-                            data-nip="{{ $u['nip'] }}">
+                        @forelse ($users as $u)
+                        <tr class="hover:bg-gray-50 transition user-row">
                             <td class="py-3.5 px-2 text-brand-600 font-mono text-xs">{{ $u['nip'] }}</td>
                             <td class="py-3.5 px-2 font-semibold text-gray-800">{{ $u['name'] }}</td>
                             <td class="py-3.5 px-2 text-gray-500">{{ $u['email'] }}</td>
@@ -184,10 +196,18 @@
                                 </div>
                             </td>
                         </tr>
-                        @endforeach
+                        @empty
+                        <tr>
+                            <td colspan="7" class="text-center text-sm text-gray-400 py-8">Tidak ada user yang cocok.</td>
+                        </tr>
+                        @endforelse
                     </tbody>
                 </table>
-                <p id="noUserResult" class="hidden text-center text-sm text-gray-400 py-8">Tidak ada user yang cocok.</p>
+            </div>
+
+            {{-- Pagination --}}
+            <div class="mt-5">
+                {{ $users->onEachSide(1)->links() }}
             </div>
         </div>
 
@@ -441,26 +461,20 @@
     });
 })();
 
-// ── Live user search ───────────────────────────────────────────────────────
+// ── User search: submit ke server (tabel sudah dipaginasi, jadi filter
+//    harus jalan di query DB, bukan sekadar sembunyikan baris di halaman ini) ──
 (function () {
-    const input   = document.getElementById('userSearch');
-    const rows    = document.querySelectorAll('.user-row');
-    const noResult= document.getElementById('noUserResult');
-    if (!input) return;
+    const form   = document.getElementById('userFilterForm');
+    const input  = document.getElementById('userSearch');
+    const filter = document.getElementById('userPusatRisetFilter');
+    if (!form) return;
 
-    input.addEventListener('input', () => {
-        const q = input.value.toLowerCase().trim();
-        let visible = 0;
-        rows.forEach(row => {
-            const match = !q
-                || row.dataset.name.includes(q)
-                || row.dataset.email.includes(q)
-                || row.dataset.nip.includes(q);
-            row.style.display = match ? '' : 'none';
-            if (match) visible++;
-        });
-        noResult.classList.toggle('hidden', visible > 0);
+    let timer;
+    input?.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => form.submit(), 450);
     });
+    filter?.addEventListener('change', () => form.submit());
 })();
 </script>
 @endpush
