@@ -41,8 +41,7 @@
             <g><title>{{ $names[$row['scale']] }}: {{ $row['count'] }} responden</title>
                 <rect x="{{ $x }}" y="{{ 210 - $height }}" width="33" height="{{ $height }}" rx="3" fill="{{ $palette[$row['scale']] }}" />
                 <text x="{{ $x + 16.5 }}" y="{{ 202 - $height }}" text-anchor="middle" font-size="11" font-weight="700">{{ $isPercent ? $valueLabel($row['count']) : $row['count'] }}</text>
-                <text x="{{ $x + 16.5 }}" y="228" text-anchor="middle" font-size="12" font-weight="700">{{ $row['scale'] }}</text>
-                <text x="{{ $x + 16.5 }}" y="243" text-anchor="middle" font-size="10">
+                <text x="{{ $x + 16.5 }}" y="228" text-anchor="middle" font-size="10">
                     @foreach (explode(' ', $names[$row['scale']]) as $word)<tspan x="{{ $x + 16.5 }}" dy="{{ $loop->first ? 0 : 11 }}">{{ $word }}</tspan>@endforeach
                 </text>
             </g>
