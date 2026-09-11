@@ -3,6 +3,7 @@
 @section('title', 'Beranda')
 
 @section('content')
+    @include('dashboard.partials.analysis-styles')
 
     {{-- HERO --}}
     <section class="bg-gradient-to-b from-brand-700 via-brand-600 to-brand-600 text-white">
@@ -59,39 +60,17 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Jenis Diagram:</label>
-                    <select id="chartType"
-                            class="w-full h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+                    <label for="diagram-select" class="block text-sm font-semibold text-gray-700 mb-2">Jenis Diagram:</label>
+                    <select id="diagram-select" aria-controls="category-panel" class="w-full h-12 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
                         <option value="pie">Diagram Lingkaran</option>
-                        <option value="bar">Diagram Batang</option>
-                        <option value="polarArea">Diagram Pohon</option>
+                        <option value="bar" selected>Diagram Batang</option>
+                        <option value="tree">Diagram Pohon</option>
                     </select>
                 </div>
             </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 mt-10">
-
-                {{-- Chart canvas tetap statis di sini (bukan bagian AJAX) karena
-                     Chart.js perlu instance yang menempel ke elemen <canvas> ini
-                     terus-menerus; datanya di-update lewat chart.update(), bukan
-                     lewat penggantian innerHTML. --}}
-                <div>
-                    <h3 class="text-base font-bold text-gray-900 mb-4">Distribusi Respon</h3>
-                    <div class="relative h-80">
-                        <canvas id="distributionChart"></canvas>
-                    </div>
-                </div>
-
-                {{-- Legend + distribution list + table + ringkasan: semuanya
-                     diganti sekaligus lewat AJAX saat kategori berganti. --}}
-                <div id="category-panel">
-                    @include('dashboard.partials.category-panel', [
-                        'activeCategory' => $activeCategory,
-                        'colors'         => $colors,
-                        'table'          => $table,
-                        'total'          => $total,
-                    ])
-                </div>
+            <p id="category-error" class="text-sm text-red-600 mt-4" role="alert" hidden></p>
+            <div id="category-panel" class="mt-8">
+                @include('dashboard.partials.analysis')
             </div>
         </div>
     </section>
@@ -133,112 +112,38 @@
 
 @push('scripts')
     <script>
-        // Data chart bersifat "current" (bisa diganti saat AJAX refresh),
-        // makanya pakai `let` bukan `const`.
-        let distribution  = @json($activeCategory['distribution']);
-        let likertLabels  = @json($activeCategory['labels_likert']);
-        const colors      = @json($colors);
-
-        let labels           = Object.keys(distribution).map(k => `${likertLabels[k]} (${k})`);
-        let data             = Object.values(distribution);
-        let backgroundColors = Object.keys(distribution).map(k => colors[k]);
-
-        let chart;
-        let currentChartType = 'pie';
-        const ctx = document.getElementById('distributionChart');
-
-        function renderChart(type) {
-            currentChartType = type;
-            if (chart) chart.destroy();
-
-            const isCartesian = type === 'bar';
-            const isPolar     = type === 'polarArea';
-
-            chart = new Chart(ctx, {
-                type: type,
-                plugins: [ChartDataLabels], // ← daftarkan plugin khusus chart ini
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        data: data,
-                        backgroundColor: backgroundColors,
-                        borderWidth: isCartesian ? 0 : 2,
-                        borderColor: '#ffffff',
-                    }],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: isPolar },
-                        tooltip: {
-                            callbacks: {
-                                label: (ctx) => {
-                                    const total = data.reduce((a, b) => a + b, 0);
-                                    const raw   = ctx.raw ?? 0;
-                                    const pct   = total > 0 ? (raw / total * 100).toFixed(1) : '0.0';
-                                    return `${ctx.label}: ${raw} responden (${pct}%)`;
-                                },
-                            },
-                        },
-                        datalabels: {
-                            color: '#ffffff',
-                            font: { weight: 'bold', size: 12 },
-                            formatter: (value) => {
-                                const total = data.reduce((a, b) => a + b, 0);
-                                if (total === 0 || value === 0) return '';
-                                const pct = (value / total * 100).toFixed(1);
-                                return `${pct}%`; // bisa diganti jadi `${value}` kalau mau tampilkan angka respondennya
-                            },
-                            display: (ctx) => {
-                                // sembunyikan label kalau slice-nya terlalu kecil (biar nggak numpuk)
-                                const value = ctx.dataset.data[ctx.dataIndex];
-                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                                return total > 0 && (value / total) > 0.03; // sembunyikan jika < 3%
-                            },
-                        },
-                    },
-                    scales: isCartesian
-                        ? { y: { beginAtZero: true, grid: { color: '#f3f4f6' } } }
-                        : {},
-                },
+        const kategoriSelect = document.getElementById('kategori-select');
+        const categoryPanel = document.getElementById('category-panel');
+        const categoryError = document.getElementById('category-error');
+        let selectedCategory = kategoriSelect.value;
+        const diagramSelect = document.getElementById('diagram-select');
+        function updateDiagrams() {
+            categoryPanel.querySelectorAll('[data-diagram]').forEach((diagram) => {
+                diagram.hidden = diagram.dataset.diagram !== diagramSelect.value;
             });
         }
-
-        renderChart('pie');
-
-        document.getElementById('chartType').addEventListener('change', (e) => {
-            renderChart(e.target.value);
-        });
-
-        // ─────────────────────────────────────────────────────────────
-        //  AJAX: ambil ulang data setiap dropdown kategori berganti
-        // ─────────────────────────────────────────────────────────────
-        const kategoriSelect = document.getElementById('kategori-select');
-        const dashboardDataUrl = '{{ route('dashboard.data') }}';
-
-        kategoriSelect.addEventListener('change', async (e) => {
+        diagramSelect.addEventListener('change', updateDiagrams);
+        updateDiagrams();
+        kategoriSelect.addEventListener('change', async (event) => {
+            kategoriSelect.disabled = true;
+            categoryPanel.setAttribute('aria-busy', 'true');
+            categoryError.hidden = true;
             try {
-                const res = await fetch(`${dashboardDataUrl}?kategori=${encodeURIComponent(e.target.value)}`, {
+                const response = await fetch(`{{ route('dashboard.data') }}?kategori=${encodeURIComponent(event.target.value)}`, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 });
-                if (!res.ok) throw new Error('Request gagal');
-                const json = await res.json();
-
-                // Ganti HTML legend + distribusi + tabel + ringkasan
-                document.getElementById('category-panel').innerHTML = json.panelHtml;
-                if (window.lucide) lucide.createIcons();
-
-                // Hitung ulang data chart lalu render ulang dengan tipe yang sedang dipilih
-                distribution     = json.distribution;
-                likertLabels     = json.labelsLikert;
-                labels           = Object.keys(distribution).map(k => `${likertLabels[k]} (${k})`);
-                data             = Object.values(distribution);
-                backgroundColors = Object.keys(distribution).map(k => json.colors[k]);
-
-                renderChart(currentChartType);
-            } catch (err) {
-                console.error('Gagal memuat data dashboard:', err);
+                if (!response.ok) throw new Error('Request gagal');
+                const payload = await response.json();
+                categoryPanel.innerHTML = payload.panelHtml;
+                updateDiagrams();
+                selectedCategory = kategoriSelect.value;
+            } catch (error) {
+                kategoriSelect.value = selectedCategory;
+                categoryError.textContent = 'Gagal memuat data kategori. Silakan coba kembali.';
+                categoryError.hidden = false;
+            } finally {
+                kategoriSelect.disabled = false;
+                categoryPanel.removeAttribute('aria-busy');
             }
         });
     </script>

@@ -3,9 +3,9 @@
     <table class="w-full text-sm">
         <thead class="bg-gray-50 text-gray-600">
             <tr>
-                <th class="text-left font-semibold px-5 py-3">Skala</th>
-                <th class="text-center font-semibold px-5 py-3">Frekuensi (n)</th>
-                <th class="text-center font-semibold px-5 py-3">Persentase (%)</th>
+                <th class="text-left font-semibold px-5 py-3">Kriteria kelas</th>
+                <th class="text-center font-semibold px-5 py-3">Frekuensi</th>
+                <th class="text-center font-semibold px-5 py-3">Persentase</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -32,7 +32,7 @@
         <div class="flex items-center justify-between bg-gray-50 rounded-xl px-5 py-4">
             <span class="flex items-center gap-3 text-sm font-semibold text-gray-700">
                 <span class="w-3 h-3 rounded-sm shrink-0" style="background-color: {{ $colors[$row['scale']] ?? '#ccc' }}"></span>
-                {{ $activeCategory['labels_likert'][$row['scale']] }} ({{ $row['scale'] }})
+                {{ $activeCategory['labels_kualitas'][$row['scale']] }} ({{ $row['scale'] }})
             </span>
             <span class="text-right">
                 <span class="block text-sm font-bold text-gray-900">{{ $row['count'] }} responden</span>
@@ -44,4 +44,8 @@
 <div class="bg-red-50 rounded-xl px-5 py-4 mt-6">
     <p class="text-sm font-bold text-red-700">Ringkasan</p>
     <p class="text-sm text-red-600 mt-1">Total Responden: {{ $total }} pegawai</p>
+    <p class="text-sm text-red-600 mt-1">
+        Rata-rata Skor: {{ number_format($activeCategory['rata_rata'], 2, ',', '.') }} / 5,00
+        — {{ $activeCategory['kelas_label'] }}
+    </p>
 </div>

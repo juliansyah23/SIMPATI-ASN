@@ -9,27 +9,17 @@ use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    private const LIKERT_LABELS = [
-        1 => 'Sangat Tidak Setuju',
-        2 => 'Tidak Setuju',
-        3 => 'Netral',
-        4 => 'Setuju',
-        5 => 'Sangat Setuju',
-    ];
-
     /**
-     * Label "kualitas" per kategori (kode kategori => [skala => label]). Dipakai
-     * untuk teks di tabel distribusi & ringkasan, persis seperti versi hardcode
-     * sebelumnya. Kategori yang tidak ada di sini fallback ke LIKERT_LABELS biasa.
+     * Satu-satunya label kriteria kelas yang dipakai di SELURUH halaman Beranda
+     * (tabel distribusi frekuensi, list "Distribusi Respon", legend/tooltip chart),
+     * untuk SEMUA kategori — tidak lagi beda-beda per kategori.
      */
-    private const KUALITAS_LABELS = [
-        'persepsi_kebijakan'  => [1 => 'Sangat Kurang Baik', 2 => 'Kurang Baik', 3 => 'Cukup Baik', 4 => 'Baik', 5 => 'Sangat Baik'],
-        'motivasi_kerja'      => [1 => 'Sangat Rendah', 2 => 'Rendah', 3 => 'Cukup', 4 => 'Tinggi', 5 => 'Sangat Tinggi'],
-        'kepuasan_kerja'      => [1 => 'Sangat Tidak Puas', 2 => 'Tidak Puas', 3 => 'Cukup Puas', 4 => 'Puas', 5 => 'Sangat Puas'],
-        'engagement_pegawai'  => [1 => 'Sangat Rendah', 2 => 'Rendah', 3 => 'Cukup', 4 => 'Tinggi', 5 => 'Sangat Tinggi'],
-        'stres_kerja'         => [1 => 'Sangat Tidak Setuju', 2 => 'Tidak Setuju', 3 => 'Netral', 4 => 'Setuju', 5 => 'Sangat Setuju'],
-        'dukungan_organisasi' => [1 => 'Sangat Kurang', 2 => 'Kurang', 3 => 'Cukup', 4 => 'Baik', 5 => 'Sangat Baik'],
-        'wlb'                 => [1 => 'Sangat Buruk', 2 => 'Buruk', 3 => 'Cukup', 4 => 'Baik', 5 => 'Sangat Baik'],
+    private const LIKERT_LABELS = [
+        1 => 'Sangat Kurang Baik',
+        2 => 'Kurang Baik',
+        3 => 'Cukup Baik',
+        4 => 'Baik',
+        5 => 'Sangat Baik',
     ];
 
     /** Label tampilan dropdown "Pilih Kategori", per kode kategori. */
@@ -43,6 +33,7 @@ class DashboardController extends Controller
         'wlb'                 => 'VII. Work–Life Balance',
     ];
 
+
     private const CHART_COLORS = [
         1 => '#ef4444',
         2 => '#f97316',
@@ -50,6 +41,46 @@ class DashboardController extends Controller
         4 => '#10b981',
         5 => '#047857',
     ];
+
+    /**
+     * Batas atas tiap kelas interval, mengikuti rumus distribusi frekuensi Sturges:
+     *   Skor tertinggi = 5, skor terendah = 1, banyak kelas k = 5
+     *   Panjang kelas  = (5 - 1) / 5 = 0,8
+     *
+     * Sehingga terbentuk 5 kelas berikut (persis seperti kriteria kelas SIMPATI ASN):
+     *   Kelas 1 — Sangat Kurang : 1,00 - 1,80
+     *   Kelas 2 — Kurang        : 1,81 - 2,60
+     *   Kelas 3 — Cukup Baik    : 2,61 - 3,40
+     *   Kelas 4 — Baik          : 3,41 - 4,20
+     *   Kelas 5 — Sangat Baik   : 4,21 - 5,00
+     *
+     * Array ini menyimpan BATAS ATAS tiap kelas (dipakai klasifikasiSkor() di bawah).
+     */
+    private const BATAS_ATAS_KELAS = [
+        1 => 1.80,
+        2 => 2.60,
+        3 => 3.40,
+        4 => 4.20,
+        5 => 5.00,
+    ];
+
+    /**
+     * Klasifikasikan satu skor rata-rata (1,00 - 5,00) ke salah satu dari 5 kelas
+     * interval di atas — MENGGANTIKAN pembulatan matematis biasa (ROUND()) yang
+     * batasnya beda (di angka ,5) dari kriteria kelas panjang-0,8 yang diminta.
+     *
+     * Contoh: skor 1,7 -> tetap Kelas 1 (Sangat Kurang), bukan dibulatkan ke 2.
+     */
+    private function klasifikasiSkor(float $skor): int
+    {
+        foreach (self::BATAS_ATAS_KELAS as $kelas => $batasAtas) {
+            if ($skor <= $batasAtas) {
+                return $kelas;
+            }
+        }
+
+        return 5; // fallback pengaman, seharusnya tidak pernah kepakai
+    }
 
     /**
      * Kuisioner aktif yang dipakai sebagai sumber data dashboard. Mengambil
@@ -82,30 +113,39 @@ class DashboardController extends Controller
 
         foreach ($categories as $category) {
             // Hitung distribusi skor per RESPONDEN UNIK (bukan per jawaban).
-            // Caranya: ambil rata-rata skor tiap responden dalam kategori ini,
-            // lalu bulatkan ke integer untuk menentukan skala 1–5-nya.
+            // Caranya: ambil rata-rata skor MENTAH (belum dibulatkan) tiap responden
+            // dalam kategori ini, lalu klasifikasikan ke salah satu dari 5 kelas
+            // interval memakai rumus panjang kelas 0,8 (lihat klasifikasiSkor()).
             // Dengan begitu, 1 responden = 1 suara, meskipun kategori punya banyak pertanyaan.
             $rows = SurveyAnswer::query()
                 ->join('questions', 'questions.id', '=', 'survey_answers.question_id')
                 ->join('survey_responses', 'survey_responses.id', '=', 'survey_answers.survey_response_id')
                 ->where('questions.category_id', $category->id)
                 ->where('survey_responses.status', 'submitted')
-                ->selectRaw('survey_responses.id as response_id, ROUND(AVG(survey_answers.skor)) as skor_rata')
+                ->selectRaw('survey_responses.id as response_id, AVG(survey_answers.skor) as skor_rata')
                 ->groupBy('survey_responses.id')
-                ->get()
-                ->groupBy('skor_rata')
-                ->map(fn ($group) => $group->count());
+                ->pluck('skor_rata');
 
-            $distribution = [];
-            foreach (range(1, 5) as $scale) {
-                $distribution[$scale] = (int) ($rows[$scale] ?? 0);
+            $distribution = array_fill_keys(range(1, 5), 0);
+            foreach ($rows as $skorRata) {
+                $kelas = $this->klasifikasiSkor((float) $skorRata);
+                $distribution[$kelas]++;
             }
+
+            // Rata-rata keseluruhan kategori = rata-rata dari semua rata-rata per
+            // responden di atas, lalu diklasifikasikan pakai rumus panjang kelas 0,8
+            // yang sama (bukan lagi dipecah jadi frekuensi per kelas).
+            $rataRataKategori = $rows->isNotEmpty() ? round($rows->avg(), 2) : 0.0;
+            $kelasKategori    = $rows->isNotEmpty() ? $this->klasifikasiSkor($rataRataKategori) : null;
 
             $result[$category->kode] = [
                 'label'           => self::CATEGORY_DISPLAY_LABELS[$category->kode] ?? $category->title,
                 'labels_likert'   => self::LIKERT_LABELS,
-                'labels_kualitas' => self::KUALITAS_LABELS[$category->kode] ?? self::LIKERT_LABELS,
+                'labels_kualitas' => self::LIKERT_LABELS,
                 'distribution'    => $distribution,
+                'rata_rata'       => $rataRataKategori,
+                'kelas'           => $kelasKategori,
+                'kelas_label'     => $kelasKategori ? self::LIKERT_LABELS[$kelasKategori] : '-',
             ];
         }
 
@@ -127,7 +167,7 @@ class DashboardController extends Controller
         $payload = $this->buildPayload($request);
 
         return response()->json([
-            'panelHtml' => view('dashboard.partials.category-panel', [
+            'panelHtml' => view('dashboard.partials.analysis', [
                 'activeCategory' => $payload['activeCategory'],
                 'colors'         => $payload['colors'],
                 'table'          => $payload['table'],
@@ -159,6 +199,9 @@ class DashboardController extends Controller
             'labels_likert'   => self::LIKERT_LABELS,
             'labels_kualitas' => self::LIKERT_LABELS,
             'distribution'    => array_fill_keys(range(1, 5), 0),
+            'rata_rata'       => 0.0,
+            'kelas'           => null,
+            'kelas_label'     => '-',
         ];
 
         // Total = jumlah responden unik (bukan jumlah jawaban)

@@ -9,6 +9,7 @@
         {{-- Page heading --}}
         <h1 class="text-3xl font-extrabold text-gray-900">Data Hasil Kuisioner Psikososial</h1>
         <p class="text-gray-500 mt-2">Analisis komprehensif kondisi psikososial ASN berdasarkan hasil kuisioner</p>
+        @include('data.partials.reading-guide')
 
         {{-- indikator loading kecil saat AJAX jalan --}}
         <div id="data-loading" class="hidden fixed top-4 right-4 z-50 bg-gray-900 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-lg">
@@ -194,6 +195,64 @@
             trendChart:     @json($trendChart),
         };
 
+        // Rincian HTML tetap terbaca tanpa hover dan mengikuti pembaruan filter.
+        function renderChartDetails(id, chart, distribution = false) {
+            let container = document.getElementById(`${id}-details`);
+            if (!container) {
+                container = document.createElement('div');
+                container.id = `${id}-details`;
+                container.className = 'mt-4 overflow-x-auto text-xs text-gray-600';
+                document.getElementById(id).parentElement.after(container);
+            }
+            container.replaceChildren();
+            const table = document.createElement('table');
+            table.className = 'w-full text-left';
+            const caption = table.createCaption();
+            caption.className = 'text-left font-semibold text-gray-700 mb-2';
+            caption.textContent = distribution ? 'Jumlah dan persentase respons per pusat riset' : 'Rincian rata-rata skor (skala 1–5)';
+            const header = table.createTHead().insertRow();
+            const headings = distribution
+                ? ['Pusat Riset', 'Jumlah Respons', 'Persentase']
+                : ['Kategori / Periode', ...chart.datasets.map(ds => ds.label)];
+            headings.forEach(label => {
+                const cell = document.createElement('th');
+                cell.scope = 'col';
+                cell.className = 'px-2 py-2 border-b border-gray-200';
+                cell.textContent = label;
+                header.append(cell);
+            });
+            const body = table.createTBody();
+            const total = distribution ? chart.data.reduce((sum, value) => sum + Number(value), 0) : 0;
+            chart.labels.forEach((label, index) => {
+                const row = body.insertRow();
+                const values = distribution
+                    ? [Number(chart.data[index]).toLocaleString('id-ID'), `${(total ? chart.data[index] / total * 100 : 0).toLocaleString('id-ID', { maximumFractionDigits: 1 })}%`]
+                    : chart.datasets.map(ds => ds.data[index] == null ? '—' : Number(ds.data[index]).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 2 }));
+                [label || 'Tanpa label', ...values].forEach((value, column) => {
+                    const cell = document.createElement(column === 0 ? 'th' : 'td');
+                    if (column === 0) cell.scope = 'row';
+                    cell.className = 'px-2 py-2 border-b border-gray-100 font-normal';
+                    cell.textContent = value;
+                    row.append(cell);
+                });
+            });
+            container.append(table);
+            const note = document.createElement('p');
+            note.className = 'mt-2 text-gray-500';
+            note.textContent = distribution
+                ? (total ? `Total pada grafik: ${total.toLocaleString('id-ID')} respons. Persentase dihitung dari total yang ditampilkan.` : 'Belum ada respons untuk pusat riset pada grafik sesuai filter ini.')
+                : 'Nilai 0 dapat berarti skor belum tersedia; lihat Panduan Membaca Data.';
+            container.append(note);
+        }
+
+        function refreshChartDetails(charts) {
+            ['modeKerjaChart', 'pieChart', 'radarChart', 'trendChart'].forEach(id => {
+                renderChartDetails(id, charts[id], id === 'pieChart');
+            });
+        }
+
+        refreshChartDetails(initialCharts);
+
         // ---- Bar: Perbandingan Mode Kerja ----
         const modeKerjaChartInstance = new Chart(document.getElementById('modeKerjaChart'), {
             type: 'bar',
@@ -230,7 +289,7 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
+                    legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
                     tooltip: {
                         callbacks: {
                             label: (ctx) => `${ctx.label}: ${ctx.raw} responden`,
@@ -300,6 +359,7 @@
                 });
                 if (!res.ok) throw new Error('Request gagal');
                 const json = await res.json();
+                refreshChartDetails(json);
 
                 // Stat cards, tabel pusat riset, tabel detail responden (HTML partial dari server)
                 document.getElementById('stats-container').innerHTML = json.statsHtml;
